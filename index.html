@@ -1,0 +1,2711 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>RidePilot</title>
+<meta name="description" content="RidePilot – Fahrtenbuch, Restreichweite und Wartung für den Volta VSX.">
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#0B0D10">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RidePilot">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer></script>
+<script>
+  /* Theme sofort setzen (vor dem ersten Paint), damit kein Flackern entsteht. */
+  (function () {
+    try {
+      var t = localStorage.getItem('rp-theme') || 'system';
+      var isDark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    --bg: #F5F6F8;
+    --surface: #FFFFFF;
+    --surface-alt: #EEF0F3;
+    --text: #14171A;
+    --text-2: #667085;
+    --text-3: #98A1AC;
+    --border: #E3E6EA;
+    --accent: #0E7C86;
+    --accent-strong: #095A62;
+    --accent-tint: #E4F2F1;
+    --warn: #C97A1F;
+    --warn-tint: #FBF0DF;
+    --danger: #C23C31;
+    --danger-tint: #FBE7E5;
+    --shadow: 0 1px 2px rgba(16,24,32,0.05), 0 8px 24px rgba(16,24,32,0.07);
+    --radius-lg: 22px;
+    --radius-md: 16px;
+    --radius-sm: 11px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-top: env(safe-area-inset-top, 0px);
+  }
+  [data-theme="dark"] {
+    --bg: #0B0D10;
+    --surface: #16191D;
+    --surface-alt: #1E2227;
+    --text: #F2F4F6;
+    --text-2: #9AA2AC;
+    --text-3: #6C7580;
+    --border: #262B31;
+    --accent: #29AEB6;
+    --accent-strong: #52C4CB;
+    --accent-tint: #16292A;
+    --warn: #E4A852;
+    --warn-tint: #2B2211;
+    --danger: #E6675C;
+    --danger-tint: #2E1815;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 28px rgba(0,0,0,0.45);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 16px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior-y: none;
+  }
+  h1, h2, h3, .num {
+    font-family: 'Space Grotesk', 'Manrope', sans-serif;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+  button, input, select, textarea { font-family: inherit; color: inherit; }
+  button { cursor: pointer; }
+  a { color: var(--accent); }
+  ::selection { background: var(--accent); color: white; }
+
+  #app { max-width: 560px; margin: 0 auto; min-height: 100vh; position: relative; padding-bottom: calc(78px + var(--safe-bottom)); }
+
+  .topbar {
+    padding: calc(18px + var(--safe-top)) 20px 8px;
+    display: flex; align-items: baseline; justify-content: space-between;
+  }
+  .topbar .greeting { font-size: 22px; font-weight: 700; }
+  .topbar .date { font-size: 13px; color: var(--text-2); font-weight: 500; }
+
+  .view { display: none; padding: 4px 16px 24px; animation: fadeIn .25s ease; }
+  .view.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: translateY(0);} }
+  @media (prefers-reduced-motion: reduce) { .view { animation: none; } * { transition: none !important; animation-duration: .01ms !important; } }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow);
+  }
+  .card-tight { padding: 14px 16px; }
+  .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); margin: 22px 4px 10px; }
+  .section-title:first-child { margin-top: 4px; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    border: none; border-radius: var(--radius-md);
+    padding: 14px 18px; font-size: 16px; font-weight: 700;
+    width: 100%; transition: transform .12s ease, opacity .12s ease;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-secondary { background: var(--surface-alt); color: var(--text); }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-ghost { background: transparent; color: var(--accent); padding: 10px 6px; width: auto; }
+  .btn-sm { padding: 10px 14px; font-size: 14px; width: auto; }
+  .btn[disabled] { opacity: .45; pointer-events: none; }
+  .btn-row { display: flex; gap: 10px; }
+  .btn-row .btn { flex: 1; }
+
+  .quick-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .quick-btn {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+    padding: 14px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+    font-size: 12.5px; font-weight: 700; color: var(--text); box-shadow: var(--shadow);
+  }
+  .quick-btn svg { width: 22px; height: 22px; stroke: var(--accent); }
+  .quick-btn:active { transform: scale(0.96); }
+
+  input[type=text], input[type=number], input[type=date], input[type=tel], select, textarea {
+    width: 100%; background: var(--surface-alt); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 12px 14px; font-size: 16px; color: var(--text);
+  }
+  input:focus, select:focus, textarea:focus, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  label { font-size: 13px; font-weight: 600; color: var(--text-2); display: block; margin: 12px 0 6px; }
+  label:first-child { margin-top: 0; }
+
+  .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 100px; }
+  .pill-ok { background: var(--accent-tint); color: var(--accent-strong); }
+  .pill-warn { background: var(--warn-tint); color: var(--warn); }
+  .pill-danger { background: var(--danger-tint); color: var(--danger); }
+
+  .banner { display: flex; gap: 12px; align-items: flex-start; background: var(--warn-tint); border: 1px solid transparent; border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 14px; }
+  .banner svg { width: 20px; height: 20px; stroke: var(--warn); flex-shrink: 0; margin-top: 1px; }
+  .banner p { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+  .banner button { margin-top: 8px; }
+
+  /* Gauge */
+  .gauge-wrap { display: flex; flex-direction: column; align-items: center; padding-top: 4px; }
+  #gaugeFill { transition: stroke-dashoffset .7s cubic-bezier(.2,.8,.2,1), stroke .3s ease, opacity .3s ease; opacity: 0; }
+  .gauge-value { text-align: center; margin-top: -64px; }
+  .gauge-value .num { font-size: 46px; font-weight: 700; display: block; line-height: 1; }
+  .gauge-value .unit { font-size: 15px; font-weight: 700; color: var(--text-2); }
+  .gauge-value .label { font-size: 13px; color: var(--text-2); margin-top: 4px; font-weight: 600; }
+  .gauge-meta { text-align: center; font-size: 12px; color: var(--text-3); margin-top: 6px; font-weight: 500; }
+
+  .calib-form { display: flex; gap: 8px; align-items: flex-end; margin-top: 16px; }
+  .calib-form > div { flex: 1; }
+  .calib-form label { margin: 0 0 6px; }
+  details.history { margin-top: 12px; }
+  details.history summary { font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer; list-style: none; }
+  details.history summary::-webkit-details-marker { display: none; }
+  .history-row { display: flex; justify-content: space-between; font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--border); color: var(--text-2); }
+  .history-row:last-child { border-bottom: none; }
+
+  .list-row { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--border); }
+  .list-row:last-child { border-bottom: none; }
+  .list-row .icon { width: 38px; height: 38px; border-radius: 10px; background: var(--surface-alt); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .list-row .icon svg { width: 18px; height: 18px; stroke: var(--accent); }
+  .list-row .main { flex: 1; min-width: 0; }
+  .list-row .title { font-weight: 700; font-size: 15px; }
+  .list-row .sub { font-size: 13px; color: var(--text-2); margin-top: 1px; }
+  .list-row .trail { font-size: 13px; color: var(--text-2); font-weight: 600; text-align: right; }
+  .empty { text-align: center; padding: 34px 12px; color: var(--text-2); }
+  .empty svg { width: 34px; height: 34px; stroke: var(--text-3); margin-bottom: 10px; }
+  .empty .t { font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .empty .s { font-size: 13.5px; }
+
+  /* Bottom nav */
+  .tabbar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: space-around;
+    padding: 8px 6px calc(8px + var(--safe-bottom));
+    max-width: 560px; margin: 0 auto;
+  }
+  .tab { background: none; border: none; display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--text-3); font-size: 10.5px; font-weight: 700; padding: 4px 10px; border-radius: 10px; flex: 1; }
+  .tab svg { width: 23px; height: 23px; stroke: var(--text-3); fill: none; stroke-width: 1.8; }
+  .tab.active { color: var(--accent); }
+  .tab.active svg { stroke: var(--accent); }
+
+  /* Modal */
+  .modal-bg { position: fixed; inset: 0; background: rgba(10,12,14,0.5); z-index: 90; display: none; align-items: flex-end; }
+  .modal-bg.open { display: flex; }
+  .modal { background: var(--surface); width: 100%; max-width: 560px; margin: 0 auto; border-radius: 22px 22px 0 0; padding: 22px 20px calc(24px + var(--safe-bottom)); max-height: 86vh; overflow-y: auto; animation: slideUp .22s ease; }
+  @keyframes slideUp { from { transform: translateY(24px); opacity: .4; } to { transform: translateY(0); opacity: 1; } }
+  .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 4px; margin: 0 auto 16px; }
+  .modal h2 { font-size: 19px; margin-bottom: 4px; }
+  .modal .desc { font-size: 13.5px; color: var(--text-2); margin-bottom: 16px; }
+  .modal-close { position: absolute; top: 18px; right: 18px; background: var(--surface-alt); border: none; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .modal-close svg { width: 15px; height: 15px; stroke: var(--text-2); }
+
+  /* Toast */
+  #toast { position: fixed; top: calc(14px + var(--safe-top)); left: 50%; transform: translateX(-50%) translateY(-140%); background: var(--text); color: var(--bg); padding: 11px 18px; border-radius: 100px; font-size: 13.5px; font-weight: 700; z-index: 200; transition: transform .28s cubic-bezier(.2,.9,.3,1.2); box-shadow: var(--shadow); max-width: 88%; text-align: center; }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* Ride mode (Sicherheitsmodus) */
+  #ridemode { position: fixed; inset: 0; background: var(--bg); z-index: 150; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+  #ridemode.open { display: flex; }
+  #ridemode .rm-label { font-size: 14px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: .08em; }
+  #ridemode .rm-timer { font-size: 56px; font-weight: 700; font-family: 'Space Grotesk'; margin: 6px 0 26px; font-variant-numeric: tabular-nums; }
+  #ridemode .rm-dist { text-align: center; margin-bottom: 6px; }
+  #ridemode .rm-dist .num { font-size: 72px; font-weight: 700; line-height: 1; }
+  #ridemode .rm-dist .unit { font-size: 18px; color: var(--text-2); font-weight: 700; }
+  #ridemode .rm-speed { text-align: center; margin-bottom: 10px; font-family: 'Space Grotesk'; font-variant-numeric: tabular-nums; }
+  #ridemode .rm-speed .num { font-size: 30px; font-weight: 700; color: var(--text-2); }
+  #ridemode .rm-speed .unit { font-size: 14px; color: var(--text-3); font-weight: 700; }
+  #ridemode .rm-gps { font-size: 12.5px; color: var(--text-3); margin-bottom: 34px; font-weight: 600; }
+  #ridemode .rm-actions { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px; }
+  #ridemode .rm-stop { background: var(--danger); color: white; border: none; border-radius: 100px; padding: 20px; font-size: 18px; font-weight: 800; width: 100%; }
+  #ridemode .rm-photo { background: var(--surface-alt); border: 1px solid var(--border); border-radius: 100px; padding: 15px; font-weight: 700; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  #ridemode .rm-photo svg { width: 18px; height: 18px; stroke: var(--text); }
+  #ridemode .rm-shots { font-size: 12.5px; color: var(--text-2); margin-top: 8px; font-weight: 600; }
+
+  .field-note { font-size: 12px; color: var(--text-3); margin-top: 6px; }
+  .switcher { display: flex; background: var(--surface-alt); border-radius: 12px; padding: 3px; }
+  .switcher button { flex: 1; background: none; border: none; padding: 9px; font-size: 13.5px; font-weight: 700; border-radius: 9px; color: var(--text-2); }
+  .switcher button.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+  .doc-thumb { width: 38px; height: 38px; border-radius: 9px; object-fit: cover; flex-shrink: 0; background: var(--surface-alt); }
+
+  .kv { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14.5px; }
+  .kv:last-child { border-bottom: none; }
+  .kv .k { color: var(--text-2); font-weight: 600; }
+  .kv .v { font-weight: 700; }
+
+  @media print {
+    body * { visibility: hidden; }
+    #print-area, #print-area * { visibility: visible; }
+    #print-area { position: absolute; top: 0; left: 0; width: 100%; padding: 20px; }
+  }
+  #print-area { display: none; }
+  #print-area table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #print-area th, #print-area td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #ccc; }
+
+  #map { height: 340px; width: 100%; background: var(--surface-alt); }
+  .leaflet-container { font-family: 'Manrope', sans-serif; background: var(--surface-alt); }
+
+  /* ============ Steuerzentrale (Fahrtmodus) ============ */
+  #ridemode.open { background: #0A0E13; color: #F2F5F9; justify-content: flex-start;
+                   padding: calc(14px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom)); }
+  #ridemode .rm-label { order: -1; color: #6F7C8C; font-size: 11.5px; margin-top: 6px; }
+  #ridemode .rm-nav { order: -2; width: 100%; max-width: 420px; background: #131923; border: 1px solid #1F2836;
+                      border-radius: 22px; padding: 16px 18px; margin: 0 0 10px; box-shadow: none; }
+  #ridemode .rm-nav .instr { font-size: 19px; font-weight: 800; letter-spacing: -.3px; color: #F2F5F9; line-height: 1.25; }
+  #ridemode .rm-nav .instr span:first-child { font-size: 30px; line-height: 1; color: #4EA1FF; }
+  #ridemode .rm-nav .dest { color: #6F7C8C; margin-top: 12px; }
+  #ridemode .rm-nav .destname { color: #F2F5F9; }
+  #ridemode .rm-nav .vals { border-top: 1px solid #1F2836; margin-top: 12px; padding-top: 12px; }
+  #ridemode .rm-nav .vals .v { color: #F2F5F9; font-size: 19px; }
+  #ridemode .rm-nav .vals .l { color: #6F7C8C; }
+  #ridemode .rm-speed { order: 1; margin: 4px 0 0; }
+  #ridemode .rm-speed .num { font-size: 96px; font-weight: 800; color: #F2F5F9; line-height: 1; letter-spacing: -3px; }
+  #ridemode .rm-speed .unit { font-size: 15px; color: #6F7C8C; }
+  #ridemode .rm-dist { order: 2; margin: 10px 0 0; }
+  #ridemode .rm-dist .num { font-size: 34px; color: #A8B4C4; }
+  #ridemode .rm-dist .unit { color: #6F7C8C; font-size: 14px; }
+  #ridemode .rm-timer { order: 3; font-size: 20px; color: #6F7C8C; margin: 6px 0 0; }
+  #ridemode .rm-gps { order: 4; color: #6F7C8C; margin: 10px 0 16px; }
+  #ridemode .rm-actions { order: 5; max-width: 420px; margin-top: auto; }
+  #ridemode .rm-photo { background: #131923; border-color: #1F2836; color: #F2F5F9; }
+  #ridemode .rm-photo svg { stroke: #F2F5F9; }
+  #ridemode .rm-min { background: #131923; border-color: #1F2836; color: #F2F5F9; }
+  #ridemode .rm-stop { background: #D0483C; }
+
+  /* Hinweisband in der Karten-Ansicht */
+  #navMapPanel { background: #131923; border-color: #1F2836; color: #F2F5F9; }
+  #navMapPanel .field-note { color: #6F7C8C; }
+  #navMapPanel #mapNavArrow { font-size: 28px; color: #4EA1FF; }
+  #navMapPanel #mapNavInstr { font-size: 17px; }
+  #navMapPanel .num { color: #F2F5F9; }
+  #navMapPanel .btn { background: #1B222E; border-color: #28323F; color: #F2F5F9; }
+
+
+  /* ============ Navigation «Wohin?» ============ */
+  .nav-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .nav-tile { background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius-md);
+              padding: 14px 10px; text-align: center; cursor: pointer; transition: transform .12s ease; }
+  .nav-tile:active { transform: scale(.96); }
+  .nav-tile .ic { font-size: 24px; line-height: 1; }
+  .nav-tile .nm { font-weight: 700; margin-top: 6px; font-size: 15px; }
+  .nav-tile .hint { font-size: 11px; color: var(--text-3); font-weight: 600; margin-top: 2px; }
+  .nav-tile.add { border-style: dashed; color: var(--text-2); }
+  .nav-sym { font-size: 22px; padding: 9px 11px; border-radius: var(--radius-sm); border: 1px solid var(--border); cursor: pointer; }
+  .nav-sym.on { border-color: var(--accent); background: var(--accent-tint); }
+  .nav-res { padding: 11px 4px; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 14px; }
+  .nav-res small { display: block; color: var(--text-3); font-size: 11.5px; }
+
+  #ridemode .rm-nav { width: 100%; max-width: 340px; background: var(--surface); border: 1px solid var(--border);
+                      border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 18px; box-shadow: var(--shadow); }
+  #ridemode .rm-nav .instr { font-weight: 700; font-size: 15.5px; display: flex; gap: 8px; align-items: center; }
+  #ridemode .rm-nav .dest { font-size: 12px; color: var(--text-3); font-weight: 700; text-transform: uppercase;
+                            letter-spacing: .06em; margin-top: 10px; }
+  #ridemode .rm-nav .destname { font-size: 20px; font-weight: 800; }
+  #ridemode .rm-nav .vals { display: flex; margin-top: 10px; text-align: center; }
+  #ridemode .rm-nav .vals > div { flex: 1; }
+  #ridemode .rm-nav .vals .v { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  #ridemode .rm-nav .vals .l { font-size: 10.5px; color: var(--text-3); font-weight: 700;
+                               text-transform: uppercase; letter-spacing: .05em; }
+  #ridemode .rm-nav .warn { color: var(--danger); font-size: 12.5px; font-weight: 700; margin-top: 8px; }
+  #ridemode .rm-min { background: var(--surface-alt); border: 1px solid var(--border); border-radius: 100px;
+                      padding: 15px; font-weight: 700; width: 100%; }
+
+  #navPill { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(84px + var(--safe-bottom));
+             z-index: 140; display: none; align-items: center; gap: 10px; background: var(--accent); color: #fff;
+             border: none; border-radius: 100px; padding: 12px 20px; font-weight: 800; font-size: 14.5px;
+             box-shadow: var(--shadow); }
+  #navPill.open { display: flex; }
+
+  .leaflet-control-attribution { font-size: 9px; }
+  .rp-dot { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.2); }
+
+  .link-row { display:flex; align-items:center; justify-content:space-between; padding: 14px 2px; border-bottom: 1px solid var(--border); }
+  .link-row:last-child { border-bottom:none; }
+  .link-row .l { font-weight: 700; font-size: 15px; display:flex; align-items:center; gap:10px; }
+  .link-row .l svg { width:18px; height:18px; stroke: var(--text-2); }
+  .link-row svg.chev { width:16px; height:16px; stroke: var(--text-3); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="topbar">
+    <div>
+      <div class="greeting" id="greeting">Hallo</div>
+      <div class="date" id="topdate"></div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <section class="view" id="view-dashboard">
+    <div id="eveningBanner"></div>
+
+    <div class="card" style="text-align:center;">
+      <div class="gauge-wrap">
+        <svg viewBox="0 0 200 116" width="230" height="134">
+          <path d="M 20 106 A 80 80 0 0 1 180 106" fill="none" stroke="var(--surface-alt)" stroke-width="16" stroke-linecap="round"/>
+          <path id="gaugeFill" d="M 20 106 A 80 80 0 0 1 180 106" fill="none" stroke="var(--accent)" stroke-width="16" stroke-linecap="round"/>
+        </svg>
+        <div class="gauge-value">
+          <span class="num" id="gaugeNum">–</span>
+          <span class="unit">km Restreichweite</span>
+        </div>
+      </div>
+      <div class="gauge-meta" id="gaugeMeta">Noch keine Anzeige hinterlegt</div>
+
+      <div class="calib-form">
+        <div>
+          <label for="calibInput">Wert von der Roller-Anzeige</label>
+          <input type="number" inputmode="decimal" step="0.1" min="0" id="calibInput" placeholder="z. B. 41.1">
+        </div>
+        <button class="btn btn-primary btn-sm" style="height:47px;" onclick="submitCalibration()">Übernehmen</button>
+      </div>
+      <div class="field-note" style="text-align:left;">Trag hier abends den Wert ein, den der Roller beim Einschalten anzeigt – RidePilot zieht tagsüber automatisch deine gefahrenen Kilometer ab.</div>
+
+      <details class="history" id="calibHistoryWrap">
+        <summary>Verlauf anzeigen</summary>
+        <div id="calibHistory"></div>
+      </details>
+    </div>
+
+    <button class="btn btn-primary" style="margin-bottom:12px;" onclick="startRide()">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Fahrt starten
+    </button>
+
+    <div class="card card-tight" style="margin-bottom:14px;">
+      <button class="btn btn-primary" style="width:100%;" onclick="setView('karte')">Navigation starten</button>
+      <div class="field-note" style="margin:10px 2px 2px;">Ziele, Route und Fahrmodus findest du unter Fahren.</div>
+    </div>
+
+    <div class="quick-grid">
+      <button class="quick-btn" onclick="openMessages()">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.2-.6L3 21l1.8-5a8.3 8.3 0 0 1-.8-3.5C4 7.3 7.8 3.5 12.5 3.5S21 7.3 21 11.5z"/></svg>
+        Nachrichten
+      </button>
+      <button class="quick-btn" onclick="openWhatsApp()">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.6a8.4 8.4 0 0 1-12.3 7.5L3.5 20.5l1.5-4.6a8.4 8.4 0 1 1 15.5-4.3z"/><path d="M9 9.3c.3-.7.6-.8 1-.8h.6c.2 0 .5 0 .7.6l.8 1.9c.1.3 0 .5-.1.7l-.4.5c-.1.2-.2.3 0 .6a6 6 0 0 0 2.6 2.2c.3.1.5.1.7-.1l.5-.6c.2-.2.4-.2.6-.1l1.8.9c.3.1.5.3.5.5a2 2 0 0 1-1.9 2 7.7 7.7 0 0 1-6.2-3.4c-.9-1.4-1.5-2.7-1.2-3.9z"/></svg>
+        WhatsApp
+      </button>
+      <button class="quick-btn" onclick="openAppleMaps()">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="9 20 3 17 3 4 9 7 15 4 21 7 21 20 15 17 9 20"/><line x1="9" y1="7" x2="9" y2="20"/><line x1="15" y1="4" x2="15" y2="17"/></svg>
+        Karten
+      </button>
+      <button class="quick-btn" onclick="connectBox('boombox')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="11" rx="3"/><circle cx="8" cy="12.5" r="2.6"/><circle cx="16" cy="12.5" r="2.6"/></svg>
+        Boombox 3
+      </button>
+      <button class="quick-btn" onclick="connectBox('flip')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="9" width="18" height="7" rx="3.5"/><circle cx="12" cy="12.5" r="2.2"/></svg>
+        Flip 5
+      </button>
+      <button class="quick-btn" onclick="openSpotify()">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M7.5 9.5c3-1 6.5-.6 9 1M8 13c2.3-.7 5-.4 7.2.8M8.5 16.2c1.8-.5 3.8-.3 5.3.6"/></svg>
+        Spotify
+      </button>
+    </div>
+
+    <div class="card card-tight" id="vehicleCard" onclick="setView('einstellungen')" style="cursor:pointer;">
+      <div class="list-row" style="border:none; padding:0;">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="18" r="3"/><circle cx="18" cy="18" r="3"/><path d="M9 18h6M13 18 10 8h5l3 5"/></svg></div>
+        <div class="main">
+          <div class="title" id="vehicleTitle">Volta VSX</div>
+          <div class="sub" id="vehicleSub">Gesamtstrecke wird geladen …</div>
+        </div>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;stroke:var(--text-3)"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+
+    <div id="maintAlertWrap"></div>
+  </section>
+
+  <!-- FAHRTEN -->
+  <section class="view" id="view-fahrten">
+    <div class="btn-row" style="margin-bottom:16px;">
+      <button class="btn btn-primary" onclick="startRide()">Fahrt starten</button>
+      <button class="btn btn-secondary" style="flex:0 0 auto; width:auto; padding:14px 16px;" onclick="openManualTrip()">+ manuell</button>
+    </div>
+    <div id="tripList"></div>
+  </section>
+
+  <!-- KARTE -->
+  <section class="view" id="view-karte">
+    <div class="card card-tight" id="navMapPanel" style="display:none;margin-bottom:12px;">
+      <div style="display:flex;gap:8px;align-items:center;font-weight:800;font-size:15.5px;">
+        <span id="mapNavArrow">➜</span><span id="mapNavInstr">Route wird berechnet …</span>
+      </div>
+      <div style="display:flex;text-align:center;margin-top:12px;">
+        <div style="flex:1;"><div class="num" id="mapNavToGo" style="font-size:20px;font-weight:800;">–</div><div class="field-note">bis Ziel</div></div>
+        <div style="flex:1;"><div class="num" id="mapNavEta" style="font-size:20px;font-weight:800;">–</div><div class="field-note">Ankunft</div></div>
+        <div style="flex:1;"><div class="num" id="mapNavDriven" style="font-size:20px;font-weight:800;">–</div><div class="field-note">gefahren</div></div>
+        <div style="flex:1;"><div class="num" id="mapNavLeft" style="font-size:20px;font-weight:800;">–</div><div class="field-note">Restreichweite</div></div>
+      </div>
+      <div class="field-note" id="mapNavWarn" style="display:none;color:var(--danger);font-weight:700;margin-top:6px;">⚠︎ Restreichweite reicht nicht bis zum Ziel.</div>
+      <div style="display:flex;gap:10px;margin-top:12px;">
+        <button class="btn btn-secondary btn-sm" style="flex:1;" id="navFollowBtn" onclick="navToggleFollow()">Folgen: an</button>
+        <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="navMaximize()">Vollbild</button>
+        <button class="btn btn-secondary btn-sm" style="flex:1;color:var(--danger);" onclick="stopRide()">Beenden</button>
+      </div>
+    </div>
+
+    <div class="card card-tight" id="navMapPicker" style="margin-bottom:12px;">
+      <div class="section-title" style="margin:0 0 10px;">Wohin?</div>
+      <div class="nav-grid" id="navTilesMap"></div>
+    </div>
+
+    <div class="card" style="padding:0; overflow:hidden;">
+      <div id="map"></div>
+      <div id="mapFallback" class="empty" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 21s7-6.2 7-11a7 7 0 0 0-14 0c0 4.8 7 11 7 11z"/></svg>
+        <div class="t">Karte nicht geladen</div>
+        <div class="s">Die Karte braucht eine Internetverbindung. Offline stehen dir alle anderen Funktionen weiter zur Verfügung.</div>
+      </div>
+      <div style="padding:12px 14px; display:flex; gap:10px;">
+        <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="locateMe()">Meine Position</button>
+        <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="showLastTrack()">Letzte Fahrt</button>
+      </div>
+    </div>
+    <div class="field-note" style="margin:0 4px 14px;" id="mapHint">Zeigt deinen Standort und die Strecke der laufenden oder letzten Fahrt.</div>
+    <button class="btn btn-primary" onclick="openAppleMaps()">In Apple Karten öffnen (Navigation)</button>
+  </section>
+
+  <!-- WARTUNG -->
+  <section class="view" id="view-wartung">
+    <div class="btn-row" style="margin-bottom:16px;">
+      <button class="btn btn-primary" onclick="openMaintForm()">+ Wartungspunkt hinzufügen</button>
+    </div>
+    <div id="maintList"></div>
+  </section>
+
+  <!-- DOKUMENTE -->
+  <section class="view" id="view-dokumente">
+    <div class="btn-row" style="margin-bottom:16px;">
+      <button class="btn btn-primary" onclick="triggerDocUpload()">+ Dokument hochladen</button>
+    </div>
+    <input type="file" id="docFileInput" accept="image/*,application/pdf" style="display:none" onchange="handleDocUpload(event)">
+    <div id="docList"></div>
+
+    <div class="section-title">PDF-Export</div>
+    <div class="card">
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="exportTripsPDF()">Fahrtenbuch</button>
+        <button class="btn btn-secondary" onclick="exportMaintPDF()">Wartungsheft</button>
+      </div>
+      <div class="field-note">Öffnet den Druckdialog – dort als PDF sichern.</div>
+    </div>
+  </section>
+
+  <!-- EINSTELLUNGEN -->
+  <section class="view" id="view-einstellungen">
+
+    <div class="section-title">Darstellung</div>
+    <div class="card card-tight">
+      <div class="switcher" id="themeSwitch">
+        <button data-v="system" onclick="setTheme('system')">System</button>
+        <button data-v="light" onclick="setTheme('light')">Hell</button>
+        <button data-v="dark" onclick="setTheme('dark')">Dunkel</button>
+      </div>
+    </div>
+
+    <div class="section-title">Ablage</div>
+    <div class="card card-tight">
+      <div class="link-row" onclick="setView('dokumente')" style="cursor:pointer;">
+        <span class="l"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Dokumente & PDF-Export</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+
+    <div class="section-title">Lautsprecher</div>
+    <div class="card">
+      <div style="font-size:14px; color:var(--text-2); line-height:1.5;">
+        Auf dem iPhone darf eine Web-App keine Bluetooth-Geräte selbst verbinden. Die Boxen-Buttons starten deshalb je einen Kurzbefehl. Lege in der Kurzbefehle-App zwei Kurzbefehle mit genau diesen Namen an:
+      </div>
+      <div class="kv" style="margin-top:10px;"><span class="k">Boombox 3</span><span class="v">JBL Boombox</span></div>
+      <div class="kv"><span class="k">Flip 5</span><span class="v">JBL Flip</span></div>
+      <div class="field-note">Inhalt je Kurzbefehl: Aktion „Wiedergabeziel festlegen" → passende Box auswählen.</div>
+    </div>
+
+    <div class="section-title">Roller-Profil</div>
+    <div class="card">
+      <label for="vName">Name</label>
+      <input type="text" id="vName" placeholder="z. B. Mein Volta">
+      <label for="vModel">Modell</label>
+      <input type="text" id="vModel" value="Volta VSX" disabled style="opacity:.7;">
+      <label for="vPlate">Kontrollschild</label>
+      <input type="text" id="vPlate" placeholder="z. B. ZH 123 456">
+      <button class="btn btn-primary" style="margin-top:14px;" onclick="saveVehicle()">Speichern</button>
+    </div>
+
+    <div class="section-title">Sicherheit</div>
+    <div class="card card-tight">
+      <div class="link-row" onclick="openPinSetup()" style="cursor:pointer;">
+        <span class="l"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/></svg><span id="pinRowLabel">PIN einrichten</span></span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <div class="link-row" onclick="requestManagerAccess()" style="cursor:pointer;">
+        <span class="l"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Managerbereich</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+
+    <div class="section-title">Backup</div>
+    <div class="card card-tight">
+      <div class="link-row" onclick="exportBackup()" style="cursor:pointer;">
+        <span class="l"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Backup erstellen</span>
+      </div>
+      <div class="link-row" onclick="triggerRestoreUpload()" style="cursor:pointer;">
+        <span class="l"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Backup wiederherstellen</span>
+      </div>
+      <input type="file" id="restoreInput" accept="application/json" style="display:none" onchange="handleRestoreFile(event)">
+    </div>
+
+    <div class="section-title">Über RidePilot</div>
+    <div class="card card-tight">
+      <div class="kv"><span class="k">Version</span><span class="v">1.0 · lokal</span></div>
+      <div class="kv"><span class="k">Fahrzeug</span><span class="v">Volta VSX · 25 km/h</span></div>
+      <div class="kv"><span class="k">Daten</span><span class="v">Nur auf diesem Gerät</span></div>
+    </div>
+  </section>
+
+  <!-- TAB BAR -->
+  <nav class="tabbar">
+    <button class="tab active" data-view="dashboard" onclick="setView('dashboard')">
+      <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 12h3v8h6v-6h2v6h6v-8h3z"/></svg>
+      Dashboard
+    </button>
+    <button class="tab" data-view="fahrten" onclick="setView('fahrten')">
+      <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20 3 17V4l6 3 6-3 6 3v13l-6-3-6 3z"/><line x1="9" y1="7" x2="9" y2="20"/><line x1="15" y1="4" x2="15" y2="17"/></svg>
+      Fahrten
+    </button>
+    <button class="tab" data-view="karte" onclick="setView('karte')">
+      <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="3"/><path d="M12 21s7-6.2 7-11a7 7 0 0 0-14 0c0 4.8 7 11 7 11z"/></svg>
+      Fahren
+    </button>
+    <button class="tab" data-view="wartung" onclick="setView('wartung')">
+      <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 1 5.4-5.4L21 6l-3-3z"/></svg>
+      Wartung
+    </button>
+    <button class="tab" data-view="einstellungen" onclick="setView('einstellungen')">
+      <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      Mehr
+    </button>
+  </nav>
+
+</div>
+
+<!-- RIDE MODE OVERLAY -->
+<div id="ridemode">
+  <div class="rm-label">Fahrt läuft</div>
+  <div class="rm-nav" id="rmNav" style="display:none;">
+    <div class="instr"><span id="rmNavArrow">➜</span><span id="rmNavInstr">Route wird berechnet …</span></div>
+    <div class="dest">Ziel</div>
+    <div class="destname" id="rmNavDest">–</div>
+    <div class="vals">
+      <div><div class="v" id="rmNavToGo">–</div><div class="l">bis Ziel</div></div>
+      <div><div class="v" id="rmNavEta">–</div><div class="l">Ankunft</div></div>
+      <div><div class="v" id="rmNavLeft">–</div><div class="l">Reichweite</div></div>
+    </div>
+    <div class="warn" id="rmNavWarn" style="display:none;">⚠︎ Restreichweite reicht nicht bis zum Ziel.</div>
+  </div>
+  <div class="rm-timer" id="rmTimer">00:00</div>
+  <div class="rm-dist"><span class="num" id="rmDist">0.0</span> <span class="unit">km</span></div>
+  <div class="rm-speed"><span class="num" id="rmSpeed">0</span> <span class="unit">km/h</span></div>
+  <div class="rm-gps" id="rmGpsStatus">GPS wird gesucht …</div>
+  <div class="rm-actions">
+    <button class="rm-photo" onclick="triggerRidePhoto()">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      Foto hinzufügen
+    </button>
+    <div class="rm-shots" id="rmShots"></div>
+    <button class="rm-min" onclick="navMinimize()">In den Hintergrund – Fahrt läuft weiter</button>
+    <button class="rm-stop" onclick="stopRide()">Fahrt beenden</button>
+  </div>
+  <input type="file" id="ridePhotoInput" accept="image/*" capture="environment" style="display:none" onchange="handleRidePhoto(event)">
+</div>
+
+<!-- GENERIC MODAL -->
+<div class="modal-bg" id="modalBg" onclick="if(event.target===this) closeModal()">
+  <div class="modal" id="modalContent" role="dialog" aria-modal="true"></div>
+</div>
+
+<button id="navPill" onclick="navMaximize()"><span id="navPillText">Fahrt läuft</span></button>
+<div id="toast"></div>
+<div id="print-area"></div>
+
+<script>
+/* ============ IndexedDB Helper ============ */
+const DB_NAME = 'ridepilot', DB_VERSION = 1;
+let dbPromise = null;
+function openDB() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    if (!window.indexedDB) { reject(new Error('IndexedDB nicht verfügbar')); return; }
+    let req;
+    try { req = indexedDB.open(DB_NAME, DB_VERSION); }
+    catch (err) { reject(err); return; }
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      ['vehicle','trips','maintenance','documents','calibrations','settings'].forEach(name => {
+        if (!db.objectStoreNames.contains(name)) {
+          if (name === 'vehicle' || name === 'settings') db.createObjectStore(name, { keyPath: 'id' });
+          else db.createObjectStore(name, { keyPath: 'id', autoIncrement: true });
+        }
+      });
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = e => reject(e.target.error);
+  });
+  return dbPromise;
+}
+async function idbGet(store, key) {
+  const db = await openDB();
+  return new Promise((res, rej) => { const r = db.transaction(store,'readonly').objectStore(store).get(key); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); });
+}
+async function idbGetAll(store) {
+  const db = await openDB();
+  return new Promise((res, rej) => { const r = db.transaction(store,'readonly').objectStore(store).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error); });
+}
+async function idbPut(store, value) {
+  const db = await openDB();
+  return new Promise((res, rej) => { const r = db.transaction(store,'readwrite').objectStore(store).put(value); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); });
+}
+async function idbDelete(store, key) {
+  const db = await openDB();
+  return new Promise((res, rej) => { const r = db.transaction(store,'readwrite').objectStore(store).delete(key); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); });
+}
+async function idbClear(store) {
+  const db = await openDB();
+  return new Promise((res, rej) => { const r = db.transaction(store,'readwrite').objectStore(store).clear(); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error); });
+}
+
+/* ============ Helpers ============ */
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(window.__toastT);
+  window.__toastT = setTimeout(() => el.classList.remove('show'), 2600);
+}
+function fmtKm(n) { return (Math.round(n * 10) / 10).toLocaleString('de-CH', { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }
+function fmtDate(d) { return new Date(d).toLocaleDateString('de-CH', { timeZone: 'Europe/Zurich', day: '2-digit', month: '2-digit', year: 'numeric' }); }
+function fmtDateTime(d) { return new Date(d).toLocaleString('de-CH', { timeZone: 'Europe/Zurich', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+function fmtDuration(sec) { const m = Math.floor(sec/60); const h = Math.floor(m/60); return h>0 ? `${h} Std. ${m%60} Min.` : `${m} Min.`; }
+function uid() { return Date.now() + '-' + Math.random().toString(36).slice(2,8); }
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = (lat2-lat1) * Math.PI/180, dLon = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+async function sha256(str) {
+  if (!window.crypto || !window.crypto.subtle) throw new Error('crypto.subtle nicht verfügbar (benötigt https)');
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str + '::ridepilot'));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+/* ============ App State ============ */
+let currentView = 'dashboard';
+let allTrips = [];
+
+/* ============ Init ============ */
+window.addEventListener('error', (e) => { console.error('RidePilot Fehler:', e.error || e.message); });
+window.addEventListener('unhandledrejection', (e) => { console.error('RidePilot Fehler:', e.reason); });
+
+function showStorageError(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16.01" x2="12" y2="16"/></svg><div class="t" style="color:var(--danger);">Lokaler Speicher hier nicht verfügbar</div><div class="s">Diese Vorschau (z. B. im Chat oder als lokal geöffnete Datei) erlaubt keinen Offline-Speicher. Bitte RidePilot über die installierte/veröffentlichte Adresse öffnen.</div></div>`;
+}
+
+/* Wichtig: Die Ansicht wird immer sofort sichtbar gemacht – auch wenn das Laden der
+   Daten fehlschlägt (z. B. weil IndexedDB in einer eingebetteten Vorschau blockiert ist).
+   So bleibt die App nie leer/unbedienbar stehen. */
+window.addEventListener('DOMContentLoaded', async () => {
+  renderGreeting();
+  applyThemeSwitchUI();
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-dashboard').classList.add('active');
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === 'dashboard'));
+  try {
+    await Promise.all([renderDashboard(), refreshPinRowLabel()]);
+  } catch (err) {
+    console.error('RidePilot Init-Fehler:', err);
+    showStorageError('vehicleCard');
+    toast('Lokaler Speicher nicht verfügbar');
+  }
+});
+
+function renderGreeting() {
+  const h = new Date().getHours();
+  document.getElementById('greeting').textContent = h < 11 ? 'Guten Morgen' : h < 18 ? 'Guten Tag' : 'Guten Abend';
+  document.getElementById('topdate').textContent = new Date().toLocaleDateString('de-CH', { timeZone:'Europe/Zurich', weekday:'long', day:'2-digit', month:'long' });
+}
+
+/* ============ Navigation ============ */
+function setView(name) {
+  if (rideActive && name !== 'dashboard' && name !== 'fahrten') { /* Navigation während Fahrt bleibt möglich, aber Fahrtmodus hat Vorrang als Overlay */ }
+  currentView = name;
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+  const tabName = (name === 'dokumente') ? 'einstellungen' : name;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === tabName));
+  window.scrollTo(0,0);
+  if (name === 'dashboard') renderDashboard();
+  if (name === 'karte') initMap();
+  if (name === 'fahrten') renderFahrten();
+  if (name === 'wartung') renderWartung();
+  if (name === 'dokumente') renderDokumente();
+  if (name === 'einstellungen') renderEinstellungen();
+}
+
+/* ============ Modal helpers ============ */
+function openModal(html) {
+  document.getElementById('modalContent').innerHTML = '<div class="modal-handle"></div><button class="modal-close" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' + html;
+  document.getElementById('modalBg').classList.add('open');
+}
+function closeModal() { document.getElementById('modalBg').classList.remove('open'); }
+
+/* ============ Dashboard / Restreichweite ============ */
+async function getTotalKm(trips) {
+  return trips.reduce((s,t) => s + (t.distanceKm||0), 0);
+}
+async function getLatestCalibration() {
+  const cals = await idbGetAll('calibrations');
+  if (!cals.length) return null;
+  return cals.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+}
+async function renderDashboard() {
+ try {
+  allTrips = await idbGetAll('trips');
+  const totalKm = await getTotalKm(allTrips);
+  const cal = await getLatestCalibration();
+  const gaugeNum = document.getElementById('gaugeNum');
+  const gaugeMeta = document.getElementById('gaugeMeta');
+  const fill = document.getElementById('gaugeFill');
+  const PATH_LEN = 251.33;
+
+  if (!cal) {
+    gaugeNum.textContent = '–';
+    gaugeMeta.textContent = 'Noch keine Anzeige hinterlegt';
+    fill.style.opacity = '0';
+  } else {
+    fill.style.opacity = '1';
+    const remaining = cal.value - (totalKm - cal.odometerAtCalibration);
+    const pct = cal.value > 0 ? Math.max(0, Math.min(100, (remaining / cal.value) * 100)) : 0;
+    fill.style.strokeDasharray = `${PATH_LEN} ${PATH_LEN}`;
+    fill.style.strokeDashoffset = `${PATH_LEN * (1 - pct/100)}`;
+    if (remaining <= 0) {
+      gaugeNum.textContent = '0';
+      fill.style.stroke = 'var(--danger)';
+      gaugeMeta.innerHTML = '<span style="color:var(--danger);font-weight:700;">Bitte Anzeige aktualisieren</span>';
+    } else {
+      gaugeNum.textContent = fmtKm(remaining);
+      fill.style.stroke = pct <= 15 ? 'var(--danger)' : pct <= 40 ? 'var(--warn)' : 'var(--accent)';
+      gaugeMeta.textContent = `Stand vom ${fmtDateTime(cal.timestamp)} · ${fmtKm(cal.value)} km bei ${fmtKm(cal.odometerAtCalibration)} km Gesamtstrecke`;
+    }
+  }
+
+  // Kalibrierungs-Verlauf
+  const cals = (await idbGetAll('calibrations')).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0,8);
+  const histWrap = document.getElementById('calibHistoryWrap');
+  const hist = document.getElementById('calibHistory');
+  if (!cals.length) { histWrap.style.display = 'none'; }
+  else {
+    histWrap.style.display = '';
+    hist.innerHTML = cals.map(c => `<div class="history-row"><span>${fmtDateTime(c.timestamp)}</span><span>${fmtKm(c.value)} km</span></div>`).join('');
+  }
+
+  // Abend-Erinnerung
+  const banner = document.getElementById('eveningBanner');
+  const now = new Date();
+  const isEvening = now.getHours() >= 20;
+  const calToday = cal && new Date(cal.timestamp).toDateString() === now.toDateString();
+  const rodeSinceCal = cal && (totalKm - cal.odometerAtCalibration) > 0.05;
+  if (isEvening && !calToday && (rodeSinceCal || !cal)) {
+    banner.innerHTML = `<div class="banner"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><div><p>Heute gefahren? Trag jetzt die aktuelle Roller-Anzeige ein, damit die Reichweite morgen stimmt.</p></div></div>`;
+  } else banner.innerHTML = '';
+
+  // Fahrzeug-Karte
+  const v = await idbGet('vehicle', 'main');
+  document.getElementById('vehicleTitle').textContent = (v && v.name) ? v.name : 'Volta VSX';
+  document.getElementById('vehicleSub').textContent = `${fmtKm(totalKm)} km Gesamtstrecke${v && v.plate ? ' · ' + v.plate : ''}`;
+
+  // Wartungs-Hinweis
+  const maint = await idbGetAll('maintenance');
+  const due = maint.filter(m => maintStatus(m, totalKm).level !== 'ok');
+  const wrap = document.getElementById('maintAlertWrap');
+  if (due.length) {
+    wrap.innerHTML = `<div class="section-title">Wartung</div><div class="card card-tight">` + due.slice(0,3).map(m => {
+      const st = maintStatus(m, totalKm);
+      return `<div class="link-row" onclick="setView('wartung')" style="cursor:pointer;"><span class="l">${m.title}</span><span class="pill pill-${st.level==='overdue'?'danger':'warn'}">${st.text}</span></div>`;
+    }).join('') + `</div>`;
+  } else wrap.innerHTML = '';
+ } catch (err) {
+  console.error('renderDashboard:', err);
+  document.getElementById('gaugeNum').textContent = '–';
+  document.getElementById('gaugeMeta').textContent = 'Nicht verfügbar';
+  showStorageError('vehicleCard');
+ }
+}
+
+async function submitCalibration() {
+  const input = document.getElementById('calibInput');
+  const val = parseFloat(input.value);
+  if (isNaN(val) || val < 0) { toast('Bitte gültigen Wert eingeben'); return; }
+  const trips = await idbGetAll('trips');
+  const totalKm = await getTotalKm(trips);
+  await idbPut('calibrations', { value: val, odometerAtCalibration: totalKm, timestamp: new Date().toISOString() });
+  input.value = '';
+  toast('Reichweite aktualisiert');
+  renderDashboard();
+}
+
+/* ============ Fahrten / Ride-Tracking ============ */
+let rideActive = false, rideStart = null, rideDistance = 0, rideLastPos = null, rideLastTime = null, watchId = null, rideTimerInt = null, ridePhotos = [], rideSpeedKmh = 0, rideTrack = [];
+
+/* Filter gegen GPS-Rauschen. Wichtigster Punkt: das Gerät meldet neben der Position auch
+   ein gemessenes Tempo (coords.speed). Das ist im Stand deutlich zuverlässiger als der
+   Vergleich zweier Positionen, weil GPS-Punkte auch beim Stehen um Meter wandern.
+   - Fixes mit schlechter Genauigkeit werden komplett verworfen
+   - meldet das Gerät Schritttempo oder weniger, zählt gar nichts
+   - zusätzlich muss die Bewegung grösser sein als die Messungenauigkeit
+   - unrealistische Sprünge (Tunnel, Neuortung) setzen den Bezugspunkt neu, ohne zu zählen */
+const GPS_MAX_ACCURACY_M = 30;   // schlechtere Fixes ignorieren
+const GPS_MAX_SPEED_MS = 12;     // ~43 km/h – mehr schafft der Roller nicht, darüber ist es ein Ortungssprung
+const GPS_MIN_SPEED_MS = 1.2;    // ~4 km/h – darunter gilt: steht
+const GPS_MIN_MOVE_KM = 0.008;   // Grundschwelle: 8 m
+
+function startRide() {
+  if (rideActive) return;
+  rideActive = true; rideStart = Date.now(); rideDistance = 0;
+  rideLastPos = null; rideLastTime = null; ridePhotos = []; rideSpeedKmh = 0; rideTrack = [];
+  document.getElementById('rmTimer').textContent = '00:00';
+  document.getElementById('rmDist').textContent = '0.0';
+  document.getElementById('rmSpeed').textContent = '0';
+  document.getElementById('rmShots').textContent = '';
+  document.getElementById('rmGpsStatus').textContent = 'GPS wird gesucht …';
+  document.getElementById('ridemode').classList.add('open');
+
+  rideTimerInt = setInterval(() => {
+    const s = Math.floor((Date.now() - rideStart) / 1000);
+    const mm = String(Math.floor(s/60)).padStart(2,'0'), ss = String(s%60).padStart(2,'0');
+    document.getElementById('rmTimer').textContent = `${mm}:${ss}`;
+    // Ohne frische Position nach 8 s gilt: steht still
+    if (rideLastTime && Date.now() - rideLastTime > 8000 && rideSpeedKmh !== 0) {
+      rideSpeedKmh = 0;
+      document.getElementById('rmSpeed').textContent = '0';
+    }
+  }, 1000);
+
+  if ('geolocation' in navigator) {
+    watchId = navigator.geolocation.watchPosition(pos => {
+      const acc = pos.coords.accuracy;
+      const now = pos.timestamp || Date.now();
+      const statusEl = document.getElementById('rmGpsStatus');
+
+      if (acc > GPS_MAX_ACCURACY_M) {
+        statusEl.textContent = `GPS ungenau (±${Math.round(acc)} m) – wird nicht gezählt`;
+        return;
+      }
+      statusEl.textContent = `GPS aktiv · ±${Math.round(acc)} m`;
+
+      const { latitude, longitude } = pos.coords;
+      // Vom Gerät gemessenes Tempo, falls vorhanden (auf dem iPhone der Normalfall)
+      const reported = (typeof pos.coords.speed === 'number' && !isNaN(pos.coords.speed) && pos.coords.speed >= 0)
+        ? pos.coords.speed : null;
+
+      if (rideLastPos) {
+        const dKm = haversine(rideLastPos.lat, rideLastPos.lng, latitude, longitude);
+        const dtSec = (now - rideLastTime) / 1000;
+        const calcMs = dtSec > 0 ? (dKm * 1000) / dtSec : Infinity;
+        const speedMs = reported !== null ? reported : calcMs;
+        // Schwelle wächst mit der Ungenauigkeit: kleine Drift zählt nicht als Fahrt
+        // Ohne Tempowert vom Gerät ist die Messung anfälliger – dann strenger filtern
+        const minMove = reported !== null
+          ? Math.max(GPS_MIN_MOVE_KM, acc / 1000)
+          : Math.max(GPS_MIN_MOVE_KM * 2, (acc / 1000) * 1.8);
+
+        if (calcMs > GPS_MAX_SPEED_MS) {
+          // Ortungssprung: nur neu ansetzen
+          rideLastPos = { lat: latitude, lng: longitude }; rideLastTime = now;
+          return;
+        }
+        if (speedMs < GPS_MIN_SPEED_MS) {
+          // steht (Ampel, Parkplatz): Position nachführen, aber nichts dazuzählen
+          rideSpeedKmh = 0;
+          document.getElementById('rmSpeed').textContent = '0';
+          rideLastPos = { lat: latitude, lng: longitude }; rideLastTime = now;
+          return;
+        }
+        if (dKm < minMove) {
+          // zu klein für echte Bewegung – Bezugspunkt behalten, damit langsames Fahren
+          // über mehrere Messungen trotzdem aufaddiert wird
+          return;
+        }
+        rideDistance += dKm;
+        rideSpeedKmh = Math.round(speedMs * 3.6);
+        document.getElementById('rmDist').textContent = fmtKm(rideDistance);
+        document.getElementById('rmSpeed').textContent = String(rideSpeedKmh);
+        rideTrack.push([latitude, longitude]);
+        updateLiveTrack();
+      } else {
+        rideTrack.push([latitude, longitude]);
+      }
+      rideLastPos = { lat: latitude, lng: longitude };
+      rideLastTime = now;
+    }, err => {
+      document.getElementById('rmGpsStatus').textContent = 'GPS nicht verfügbar – Distanz manuell erfassen';
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+  } else {
+    document.getElementById('rmGpsStatus').textContent = 'GPS auf diesem Gerät nicht verfügbar';
+  }
+}
+
+function triggerRidePhoto() { document.getElementById('ridePhotoInput').click(); }
+function handleRidePhoto(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { ridePhotos.push(reader.result); document.getElementById('rmShots').textContent = `${ridePhotos.length} Foto${ridePhotos.length>1?'s':''} hinzugefügt`; };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+
+async function stopRide() {
+  clearInterval(rideTimerInt);
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  const durationSec = Math.floor((Date.now() - rideStart) / 1000);
+  const distance = rideDistance;
+  rideActive = false;
+  document.getElementById('ridemode').classList.remove('open');
+
+  if (distance < 0.05 && durationSec < 30) { toast('Fahrt zu kurz – nicht gespeichert'); return; }
+
+  await idbPut('trips', {
+    startTime: new Date(rideStart).toISOString(),
+    endTime: new Date().toISOString(),
+    durationSec, distanceKm: Math.round(distance*100)/100,
+    photos: ridePhotos, note: '', type: ridePhotos.length ? 'incident' : 'normal', manual: false,
+    track: rideTrack.map(p => [Math.round(p[0]*1e5)/1e5, Math.round(p[1]*1e5)/1e5])
+  });
+  toast(`Fahrt gespeichert · ${fmtKm(distance)} km`);
+  if (currentView === 'fahrten') renderFahrten();
+  if (currentView === 'dashboard') renderDashboard();
+}
+
+function openManualTrip() {
+  openModal(`
+    <h2>Fahrt manuell erfassen</h2>
+    <div class="desc">Für Fahrten ohne GPS-Aufzeichnung.</div>
+    <label for="mDate">Datum</label>
+    <input type="date" id="mDate" value="${new Date().toISOString().slice(0,10)}">
+    <label for="mKm">Distanz (km)</label>
+    <input type="number" id="mKm" inputmode="decimal" step="0.1" placeholder="z. B. 8.5">
+    <label for="mNote">Notiz (optional)</label>
+    <input type="text" id="mNote" placeholder="z. B. Fahrt zur Arbeit">
+    <button class="btn btn-primary" style="margin-top:18px;" onclick="saveManualTrip()">Speichern</button>
+  `);
+}
+async function saveManualTrip() {
+  const km = parseFloat(document.getElementById('mKm').value);
+  const date = document.getElementById('mDate').value;
+  const note = document.getElementById('mNote').value.trim();
+  if (isNaN(km) || km <= 0) { toast('Bitte gültige Distanz eingeben'); return; }
+  await idbPut('trips', { startTime: new Date(date).toISOString(), endTime: new Date(date).toISOString(), durationSec: 0, distanceKm: km, photos: [], note, type: 'normal', manual: true });
+  closeModal(); toast('Fahrt gespeichert'); renderFahrten(); if (document.getElementById('view-dashboard').classList.contains('active')) renderDashboard();
+}
+
+async function renderFahrten() {
+ try {
+  const trips = (await idbGetAll('trips')).sort((a,b) => new Date(b.startTime) - new Date(a.startTime));
+  const wrap = document.getElementById('tripList');
+  if (!trips.length) {
+    wrap.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20 3 17V4l6 3 6-3 6 3v13l-6-3-6 3z"/></svg><div class="t">Noch keine Fahrten</div><div class="s">Starte deine erste Fahrt oder erfasse sie manuell.</div></div>`;
+    return;
+  }
+  wrap.innerHTML = `<div class="card card-tight">` + trips.map(t => `
+    <div class="list-row" style="cursor:pointer;" onclick='showTripDetail(${t.id})'>
+      <div class="icon">${t.type==='incident' ? '<svg viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>' : '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>'}</div>
+      <div class="main">
+        <div class="title">${fmtDate(t.startTime)}${t.manual ? ' · manuell' : ''}</div>
+        <div class="sub">${t.durationSec>0 ? fmtDuration(t.durationSec) : (t.note || 'Ohne Notiz')}</div>
+      </div>
+      <div class="trail">${fmtKm(t.distanceKm)} km</div>
+    </div>`).join('') + `</div>`;
+ } catch (err) { console.error('renderFahrten:', err); showStorageError('tripList'); }
+}
+async function showTripDetail(id) {
+  const t = await idbGet('trips', id);
+  if (!t) return;
+  openModal(`
+    <h2>${fmtDate(t.startTime)}</h2>
+    <div class="desc">${t.durationSec>0 ? fmtDuration(t.durationSec) + ' · ' : ''}${fmtKm(t.distanceKm)} km</div>
+    ${t.note ? `<div class="card card-tight" style="margin-bottom:12px;">${t.note}</div>` : ''}
+    ${(t.photos||[]).map(p => `<img src="${p}" style="width:100%;border-radius:14px;margin-bottom:10px;">`).join('')}
+    <button class="btn btn-danger" onclick="deleteTrip(${id})">Fahrt löschen</button>
+  `);
+}
+async function deleteTrip(id) { await idbDelete('trips', id); closeModal(); toast('Fahrt gelöscht'); renderFahrten(); if (document.getElementById('view-dashboard').classList.contains('active')) renderDashboard(); }
+
+/* ============ Karte ============ */
+/* Grundlage ist OpenStreetMap. Apples eigene Karten lassen sich in einer Web-App nicht
+   einbetten – dafür verlangt Apple ein kostenpflichtiges Entwicklerkonto mit Schlüssel.
+   Für echte Navigation führt der Knopf unten deshalb in die Karten-App. */
+let mapObj = null, mapMarker = null, mapTrackLine = null, mapWatchId = null;
+
+function tileLayerFor(theme) {
+  const dark = theme === 'dark';
+  const url = dark
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+  return L.tileLayer(url, {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap, &copy; CARTO'
+  });
+}
+
+function initMap() {
+  if (mapObj) { setTimeout(() => mapObj.invalidateSize(), 60); return; }
+  if (typeof L === 'undefined') {
+    document.getElementById('map').style.display = 'none';
+    document.getElementById('mapFallback').style.display = 'block';
+    return;
+  }
+  try {
+    mapObj = L.map('map', { zoomControl: true, attributionControl: true }).setView([47.4, 8.6], 13);
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    tileLayerFor(isDark ? 'dark' : 'light').addTo(mapObj);
+    setTimeout(() => mapObj.invalidateSize(), 80);
+    locateMe();
+    if (rideActive && rideTrack.length) updateLiveTrack();
+    else showLastTrack(true);
+  } catch (err) {
+    console.error('initMap:', err);
+    document.getElementById('map').style.display = 'none';
+    document.getElementById('mapFallback').style.display = 'block';
+  }
+}
+
+function locateMe() {
+  if (!mapObj || !navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(pos => {
+    const ll = [pos.coords.latitude, pos.coords.longitude];
+    if (!mapMarker) {
+      mapMarker = L.marker(ll, {
+        icon: L.divIcon({ className: '', html: '<div class="rp-dot"></div>', iconSize: [18,18], iconAnchor: [9,9] })
+      }).addTo(mapObj);
+    } else mapMarker.setLatLng(ll);
+    if (!mapTrackLine) mapObj.setView(ll, 16);
+  }, () => {
+    document.getElementById('mapHint').textContent = 'Standort nicht freigegeben – die Karte zeigt nur die Strecke.';
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+function drawTrack(points, fit) {
+  if (!mapObj || !points || points.length < 2) return false;
+  if (mapTrackLine) { mapObj.removeLayer(mapTrackLine); mapTrackLine = null; }
+  mapTrackLine = L.polyline(points, { color: '#0E7C86', weight: 5, opacity: .9, lineJoin: 'round' }).addTo(mapObj);
+  if (fit) mapObj.fitBounds(mapTrackLine.getBounds(), { padding: [30,30] });
+  return true;
+}
+
+function updateLiveTrack() {
+  if (!mapObj || !rideTrack.length) return;
+  drawTrack(rideTrack, false);
+}
+
+async function showLastTrack(silent) {
+  if (!mapObj) return;
+  try {
+    if (rideActive && rideTrack.length > 1) {
+      drawTrack(rideTrack, true);
+      document.getElementById('mapHint').textContent = 'Strecke der laufenden Fahrt.';
+      return;
+    }
+    const trips = (await idbGetAll('trips'))
+      .filter(t => Array.isArray(t.track) && t.track.length > 1)
+      .sort((a,b) => new Date(b.startTime) - new Date(a.startTime));
+    if (!trips.length) {
+      if (!silent) toast('Noch keine aufgezeichnete Strecke');
+      document.getElementById('mapHint').textContent = 'Sobald du eine Fahrt aufzeichnest, erscheint die Strecke hier.';
+      return;
+    }
+    drawTrack(trips[0].track, true);
+    document.getElementById('mapHint').textContent = `Strecke vom ${fmtDate(trips[0].startTime)} · ${fmtKm(trips[0].distanceKm)} km`;
+  } catch (err) { console.error('showLastTrack:', err); }
+}
+
+/* ============ Wartung ============ */
+function maintStatus(m, totalKm) {
+  let kmLeft = Infinity, dateLeft = Infinity;
+  if (m.intervalKm) kmLeft = (m.lastDoneKm||0) + m.intervalKm - totalKm;
+  if (m.intervalMonths && m.lastDoneDate) {
+    const due = new Date(m.lastDoneDate); due.setMonth(due.getMonth() + m.intervalMonths);
+    dateLeft = Math.floor((due - new Date()) / 86400000);
+  }
+  const worst = Math.min(kmLeft === Infinity ? 999999 : kmLeft, dateLeft === Infinity ? 999999 : dateLeft * 3.5);
+  if (worst <= 0) return { level: 'overdue', text: 'Überfällig' };
+  if (kmLeft <= 150 || dateLeft <= 21) return { level: 'soon', text: 'Bald fällig' };
+  return { level: 'ok', text: 'OK' };
+}
+async function renderWartung() {
+ try {
+  const items = await idbGetAll('maintenance');
+  const totalKm = await getTotalKm(await idbGetAll('trips'));
+  const wrap = document.getElementById('maintList');
+  if (!items.length) {
+    wrap.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 1-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 1 5.4-5.4L21 6l-3-3z"/></svg><div class="t">Noch keine Wartungspunkte</div><div class="s">Füge z. B. Bremsen, Reifen oder Service hinzu.</div></div>`;
+    return;
+  }
+  wrap.innerHTML = `<div class="card card-tight">` + items.map(m => {
+    const st = maintStatus(m, totalKm);
+    return `<div class="list-row" style="cursor:pointer;" onclick='openMaintDetail(${m.id})'>
+      <div class="main"><div class="title">${m.title}</div><div class="sub">${m.intervalKm ? m.intervalKm + ' km' : ''}${m.intervalKm && m.intervalMonths ? ' · ' : ''}${m.intervalMonths ? m.intervalMonths + ' Mte.' : ''}</div></div>
+      <span class="pill pill-${st.level==='overdue'?'danger':st.level==='soon'?'warn':'ok'}">${st.text}</span>
+    </div>`;
+  }).join('') + `</div>`;
+ } catch (err) { console.error('renderWartung:', err); showStorageError('maintList'); }
+}
+function openMaintForm(existing) {
+  const e = existing || {};
+  openModal(`
+    <h2>${existing ? 'Wartungspunkt bearbeiten' : 'Neuer Wartungspunkt'}</h2>
+    <label for="wTitle">Bezeichnung</label>
+    <input type="text" id="wTitle" value="${e.title||''}" placeholder="z. B. Bremsen prüfen">
+    <label for="wKm">Intervall (km, optional)</label>
+    <input type="number" id="wKm" value="${e.intervalKm||''}" placeholder="z. B. 1000">
+    <label for="wMonths">Intervall (Monate, optional)</label>
+    <input type="number" id="wMonths" value="${e.intervalMonths||''}" placeholder="z. B. 6">
+    <label for="wLastDate">Zuletzt erledigt am</label>
+    <input type="date" id="wLastDate" value="${e.lastDoneDate ? e.lastDoneDate.slice(0,10) : new Date().toISOString().slice(0,10)}">
+    <button class="btn btn-primary" style="margin-top:18px;" onclick="saveMaint(${e.id||'null'})">Speichern</button>
+    ${existing ? `<button class="btn btn-danger" style="margin-top:10px;" onclick="deleteMaint(${e.id})">Löschen</button>` : ''}
+  `);
+}
+async function openMaintDetail(id) {
+  const m = await idbGet('maintenance', id);
+  openMaintForm(m);
+}
+async function saveMaint(id) {
+  const totalKm = await getTotalKm(await idbGetAll('trips'));
+  const rec = {
+    title: document.getElementById('wTitle').value.trim() || 'Ohne Titel',
+    intervalKm: parseFloat(document.getElementById('wKm').value) || null,
+    intervalMonths: parseFloat(document.getElementById('wMonths').value) || null,
+    lastDoneDate: document.getElementById('wLastDate').value ? new Date(document.getElementById('wLastDate').value).toISOString() : null,
+    lastDoneKm: totalKm
+  };
+  if (id) rec.id = id;
+  await idbPut('maintenance', rec);
+  closeModal(); toast('Gespeichert'); renderWartung();
+}
+async function deleteMaint(id) { await idbDelete('maintenance', id); closeModal(); toast('Gelöscht'); renderWartung(); }
+
+/* ============ Dokumente ============ */
+function triggerDocUpload() { document.getElementById('docFileInput').click(); }
+function handleDocUpload(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    await idbPut('documents', { title: file.name, category: 'Sonstiges', fileType: file.type, data: reader.result, uploadedAt: new Date().toISOString() });
+    toast('Dokument gespeichert'); renderDokumente();
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+async function renderDokumente() {
+ try {
+  const docs = (await idbGetAll('documents')).sort((a,b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+  const wrap = document.getElementById('docList');
+  if (!docs.length) {
+    wrap.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg><div class="t">Noch keine Dokumente</div><div class="s">Fahrzeugausweis, Versicherung & Co. hier ablegen.</div></div>`;
+    return;
+  }
+  wrap.innerHTML = `<div class="card card-tight">` + docs.map(d => `
+    <div class="list-row" style="cursor:pointer;" onclick='showDocDetail(${d.id})'>
+      ${d.fileType && d.fileType.startsWith('image') ? `<img class="doc-thumb" src="${d.data}">` : `<div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div>`}
+      <div class="main"><div class="title">${d.title}</div><div class="sub">${fmtDate(d.uploadedAt)}</div></div>
+    </div>`).join('') + `</div>`;
+ } catch (err) { console.error('renderDokumente:', err); showStorageError('docList'); }
+}
+async function showDocDetail(id) {
+  const d = await idbGet('documents', id);
+  openModal(`
+    <h2>${d.title}</h2>
+    <div class="desc">Hochgeladen am ${fmtDate(d.uploadedAt)}</div>
+    ${d.fileType && d.fileType.startsWith('image') ? `<img src="${d.data}" style="width:100%;border-radius:14px;margin-bottom:14px;">` : ''}
+    <a href="${d.data}" download="${d.title}" class="btn btn-secondary" style="margin-bottom:10px; text-decoration:none;">Herunterladen</a>
+    <button class="btn btn-danger" onclick="deleteDoc(${id})">Löschen</button>
+  `);
+}
+async function deleteDoc(id) { await idbDelete('documents', id); closeModal(); toast('Gelöscht'); renderDokumente(); }
+
+/* PDF-Export via Druckdialog */
+async function exportTripsPDF() {
+  const trips = (await idbGetAll('trips')).sort((a,b) => new Date(a.startTime) - new Date(b.startTime));
+  const rows = trips.map(t => `<tr><td>${fmtDate(t.startTime)}</td><td>${t.durationSec>0?fmtDuration(t.durationSec):'–'}</td><td>${fmtKm(t.distanceKm)} km</td><td>${t.note||''}</td></tr>`).join('');
+  document.getElementById('print-area').innerHTML = `<h2>Fahrtenbuch – RidePilot</h2><p>Exportiert am ${fmtDate(new Date())}</p><table><tr><th>Datum</th><th>Dauer</th><th>Distanz</th><th>Notiz</th></tr>${rows}</table>`;
+  window.print();
+}
+async function exportMaintPDF() {
+  const items = await idbGetAll('maintenance');
+  const rows = items.map(m => `<tr><td>${m.title}</td><td>${m.intervalKm?m.intervalKm+' km':'–'}</td><td>${m.intervalMonths?m.intervalMonths+' Mte.':'–'}</td><td>${m.lastDoneDate?fmtDate(m.lastDoneDate):'–'}</td></tr>`).join('');
+  document.getElementById('print-area').innerHTML = `<h2>Wartungsheft – RidePilot</h2><p>Exportiert am ${fmtDate(new Date())}</p><table><tr><th>Bezeichnung</th><th>Intervall km</th><th>Intervall Mte.</th><th>Zuletzt erledigt</th></tr>${rows}</table>`;
+  window.print();
+}
+
+/* ============ Einstellungen ============ */
+async function renderEinstellungen() {
+  const v = await idbGet('vehicle', 'main');
+  document.getElementById('vName').value = (v && v.name) || '';
+  document.getElementById('vPlate').value = (v && v.plate) || '';
+  applyThemeSwitchUI();
+  refreshPinRowLabel();
+}
+async function saveVehicle() {
+  await idbPut('vehicle', { id: 'main', name: document.getElementById('vName').value.trim(), plate: document.getElementById('vPlate').value.trim(), model: 'Volta VSX' });
+  toast('Gespeichert'); renderDashboard();
+}
+
+function applyThemeSwitchUI() {
+  let t = 'system'; try { t = localStorage.getItem('rp-theme') || 'system'; } catch(e) {}
+  document.querySelectorAll('#themeSwitch button').forEach(b => b.classList.toggle('active', b.dataset.v === t));
+}
+function setTheme(t) {
+  try { localStorage.setItem('rp-theme', t); } catch(e) {}
+  const isDark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+  applyThemeSwitchUI();
+  renderDashboard();
+}
+
+/* ============ PIN & Managerbereich ============ */
+async function refreshPinRowLabel() {
+  try {
+    const s = await idbGet('settings', 'main');
+    document.getElementById('pinRowLabel').textContent = (s && s.pinHash) ? 'PIN ändern' : 'PIN einrichten';
+  } catch (err) { console.error('refreshPinRowLabel:', err); }
+}
+function openPinSetup() {
+  openModal(`
+    <h2>PIN festlegen</h2>
+    <div class="desc">Schützt den Managerbereich (Löschen, Zurücksetzen, Wiederherstellen).</div>
+    <label for="pinNew">Neue PIN (4–6 Ziffern)</label>
+    <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="pinNew">
+    <label for="pinNew2">PIN bestätigen</label>
+    <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="pinNew2">
+    <button class="btn btn-primary" style="margin-top:18px;" onclick="savePin()">Speichern</button>
+  `);
+}
+async function savePin() {
+  const a = document.getElementById('pinNew').value.trim(), b = document.getElementById('pinNew2').value.trim();
+  if (a.length < 4 || a.length > 6 || !/^\d+$/.test(a)) { toast('PIN muss 4–6 Ziffern haben'); return; }
+  if (a !== b) { toast('PINs stimmen nicht überein'); return; }
+  try {
+    const hash = await sha256(a);
+    const s = (await idbGet('settings','main')) || { id: 'main' };
+    s.pinHash = hash;
+    await idbPut('settings', s);
+    closeModal(); toast('PIN gespeichert'); refreshPinRowLabel();
+  } catch (err) {
+    console.error('savePin:', err);
+    toast('PIN-Funktion benötigt eine sichere Verbindung (https) – bitte über die echte Adresse öffnen');
+  }
+}
+function requestManagerAccess() {
+  openModal(`
+    <h2>Managerbereich</h2>
+    <div class="desc">Bitte PIN eingeben.</div>
+    <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="pinCheck" placeholder="••••">
+    <button class="btn btn-primary" style="margin-top:18px;" onclick="checkPinAndOpenManager()">Entsperren</button>
+  `);
+}
+async function checkPinAndOpenManager() {
+  const val = document.getElementById('pinCheck').value.trim();
+  try {
+    const s = await idbGet('settings', 'main');
+    if (!s || !s.pinHash) { toast('Noch keine PIN eingerichtet'); closeModal(); openPinSetup(); return; }
+    const hash = await sha256(val);
+    if (hash !== s.pinHash) { toast('PIN falsch'); return; }
+    openManagerArea();
+  } catch (err) {
+    console.error('checkPinAndOpenManager:', err);
+    toast('PIN-Funktion benötigt eine sichere Verbindung (https) – bitte über die echte Adresse öffnen');
+  }
+}
+function openManagerArea() {
+  openModal(`
+    <h2>Managerbereich</h2>
+    <div class="desc">Diese Aktionen wirken sich auf alle gespeicherten Daten aus.</div>
+    <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="confirmClearVehicle()">Roller-Daten löschen</button>
+    <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="confirmResetAll()">Datenbank zurücksetzen</button>
+    <button class="btn btn-secondary" style="margin-bottom:10px;" onclick="closeModal(); triggerRestoreUpload();">Backup wiederherstellen</button>
+    <button class="btn btn-secondary" onclick="showDevInfo()">Entwickleroptionen</button>
+  `);
+}
+function confirmClearVehicle() {
+  openModal(`<h2>Roller-Daten löschen?</h2><div class="desc">Name, Kontrollschild und Fahrzeugprofil werden entfernt. Fahrten bleiben erhalten.</div><button class="btn btn-danger" onclick="clearVehicle()">Ja, löschen</button>`);
+}
+async function clearVehicle() { await idbDelete('vehicle','main'); closeModal(); toast('Roller-Daten gelöscht'); renderDashboard(); }
+function confirmResetAll() {
+  openModal(`<h2>Wirklich alles zurücksetzen?</h2><div class="desc">Alle Fahrten, Wartungen, Dokumente, Kalibrierungen und Einstellungen werden unwiderruflich gelöscht.</div><button class="btn btn-danger" onclick="resetAll()">Ja, alles löschen</button>`);
+}
+async function resetAll() {
+  await Promise.all(['vehicle','trips','maintenance','documents','calibrations','settings'].map(idbClear));
+  try { localStorage.removeItem('rp-theme'); } catch(e){}
+  closeModal(); toast('Zurückgesetzt'); location.reload();
+}
+async function showDevInfo() {
+  const [trips, docs, maint, cals] = await Promise.all([idbGetAll('trips'), idbGetAll('documents'), idbGetAll('maintenance'), idbGetAll('calibrations')]);
+  let estimate = null;
+  try { if (navigator.storage && navigator.storage.estimate) estimate = await navigator.storage.estimate(); } catch(e){}
+  openModal(`
+    <h2>Entwickleroptionen</h2>
+    <div class="kv"><span class="k">Fahrten</span><span class="v">${trips.length}</span></div>
+    <div class="kv"><span class="k">Wartungspunkte</span><span class="v">${maint.length}</span></div>
+    <div class="kv"><span class="k">Dokumente</span><span class="v">${docs.length}</span></div>
+    <div class="kv"><span class="k">Kalibrierungen</span><span class="v">${cals.length}</span></div>
+    ${estimate ? `<div class="kv"><span class="k">Speicher belegt</span><span class="v">${(estimate.usage/1024/1024).toFixed(1)} MB</span></div>` : ''}
+    <button class="btn btn-secondary" style="margin-top:14px;" onclick="forceSWUpdate()">Service Worker aktualisieren</button>
+  `);
+}
+async function forceSWUpdate() {
+  if ('serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    for (const r of regs) await r.update();
+    toast('Aktualisierung angestossen');
+  }
+}
+
+/* ============ Backup ============ */
+async function exportBackup() {
+  const data = {};
+  for (const store of ['vehicle','trips','maintenance','documents','calibrations','settings']) data[store] = await idbGetAll(store);
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ridepilot-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  toast('Backup wird heruntergeladen');
+}
+function triggerRestoreUpload() { document.getElementById('restoreInput').click(); }
+function handleRestoreFile(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      openModal(`<h2>Backup wiederherstellen?</h2><div class="desc">Alle aktuellen Daten werden durch den Inhalt dieser Datei ersetzt.</div><button class="btn btn-danger" onclick='doRestore(${JSON.stringify(JSON.stringify(data))})'>Ja, wiederherstellen</button>`);
+    } catch (err) { toast('Ungültige Backup-Datei'); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+async function doRestore(jsonStr) {
+  const data = JSON.parse(jsonStr);
+  for (const store of ['vehicle','trips','maintenance','documents','calibrations','settings']) {
+    await idbClear(store);
+    for (const item of (data[store]||[])) await idbPut(store, item);
+  }
+  closeModal(); toast('Backup wiederhergestellt'); location.reload();
+}
+
+/* ============ Quick Actions ============ */
+/* Auf iPhone/Mac kann eine Website Bluetooth-Geräte nicht selbst verbinden (Apple erlaubt
+   kein Web Bluetooth). Deshalb startet der Button dort einen Kurzbefehl gleichen Namens,
+   den Ivan in der Kurzbefehle-App anlegt. Auf Android/Chrome läuft der direkte Weg. */
+const BOXES = {
+  boombox: { label: 'Boombox 3', shortcut: 'JBL Boombox', btName: 'Boombox' },
+  flip:    { label: 'Flip 5',    shortcut: 'JBL Flip',    btName: 'Flip' }
+};
+
+async function connectBox(key) {
+  const box = BOXES[key];
+  if (!box) return;
+  const isApple = /iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent);
+
+  if (isApple) {
+    window.location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent(box.shortcut);
+    setTimeout(() => {
+      toast(`Kurzbefehl „${box.shortcut}" nötig – siehe Einstellungen`);
+    }, 1500);
+    return;
+  }
+
+  if (navigator.bluetooth) {
+    try {
+      await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: box.btName }], optionalServices: [] });
+      toast(`${box.label} ausgewählt`);
+    } catch (e) { /* Auswahl abgebrochen */ }
+  } else {
+    toast(`${box.label} bitte in den Bluetooth-Einstellungen verbinden`);
+  }
+}
+
+/* Öffnet eine App per URL-Schema. Reagiert das Gerät nicht (App fehlt),
+   wird nach kurzer Wartezeit die Web-Variante geladen. */
+function openExternal(scheme, fallback) {
+  let done = false;
+  const cancel = () => { done = true; };
+  window.addEventListener('blur', cancel, { once: true });
+  window.addEventListener('pagehide', cancel, { once: true });
+  setTimeout(() => { if (!done && fallback) window.location.href = fallback; }, 1200);
+  window.location.href = scheme;
+}
+
+function openSpotify() { openExternal('spotify://', 'https://open.spotify.com'); }
+function openAppleMaps() { openExternal('maps://', 'https://maps.apple.com/'); }
+function openMessages() { openExternal('sms:', null); }
+function openWhatsApp() { openExternal('whatsapp://app', 'https://web.whatsapp.com'); }
+
+/* ============ Fahrten-Löschen von Dashboard-Karte (Wartung Klick) ============ */
+</script>
+<script>
+/* ============================================================
+   RidePilot – Navigation «Wohin?»
+   Ergänzung zur bestehenden App. Ziele, Route, Restreichweite.
+   Alle Ziele bleiben lokal auf dem Gerät (localStorage).
+   ============================================================ */
+(function () {
+
+  const DKEY = 'rp-destinations';
+  const RKEY = 'rp-nav-ride';
+  const SYMS = ['🏠', '🛋️', '🧑', '🛍️', '🏢', '🍽️', '📍', '⭐️'];
+  const START = [
+    { id: 'd1', name: 'Zuhause',      icon: '🏠' },
+    { id: 'd2', name: 'Glattzentrum', icon: '🛍️' },
+    { id: 'd3', name: 'Wohnzimmer',   icon: '🛋️' },
+    { id: 'd4', name: 'Remo',         icon: '🧑' },
+    { id: 'd5', name: 'Dafi',         icon: '🧑' }
+  ];
+
+  let dests = loadDests();
+  let target = null;          // aktuelles Ziel {id,name,icon,lat,lon}
+  let baseRange = null;       // Restreichweite bei Fahrtbeginn (km)
+  let toGoKm = null;          // verbleibende Strecke laut Route
+  let routePts = [];          // Routenpunkte für Umweg-Erkennung
+  let lastRouteAt = 0;
+  let etaSec = null;
+  let tickInt = null;
+  let routeLine = null, destMarker = null;
+  let edit = null;            // Zustand im Ziel-Editor
+
+  /* ---------------- Speicher ---------------- */
+  function loadDests() {
+    try {
+      const raw = localStorage.getItem(DKEY);
+      if (!raw) return START.slice();
+      const v = JSON.parse(raw);
+      return Array.isArray(v) && v.length ? v : START.slice();
+    } catch (e) { return START.slice(); }
+  }
+  function saveDests() {
+    try { localStorage.setItem(DKEY, JSON.stringify(dests)); } catch (e) {}
+  }
+  function byId(id) { return dests.find(d => d.id === id) || null; }
+
+  /* ---------------- Kacheln ---------------- */
+  function renderTiles() {
+    ['navSearchBoxMap'].forEach((id, n) => {
+      const host = document.getElementById('navTilesMap');
+      if (!host || document.getElementById(id)) return;
+      host.insertAdjacentHTML('beforebegin', `
+        <div id="${id}" style="margin-bottom:12px;">
+          <div style="display:flex;gap:8px;">
+            <input type="search" id="navFreeSearch${n}" placeholder="Adresse oder Ort suchen"
+                   enterkeyhint="search" autocomplete="off" style="margin:0;"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();navSearchGo(${n});}">
+            <button class="btn btn-secondary" style="width:auto;padding:12px 16px;" onclick="navSearchGo(${n})">Los</button>
+          </div>
+          <div id="navFreeResults${n}"></div>
+        </div>`);
+    });
+    const html = tilesHtml();
+    ['navTilesMap'].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) b.innerHTML = html;
+    });
+  }
+
+  function tilesHtml() {
+    return dests.map(d => `
+      <div class="nav-tile" onclick="navGo('${d.id}')" oncontextmenu="navEditor('${d.id}');return false;">
+        <div class="ic">${d.icon}</div>
+        <div class="nm">${escapeHtml(d.name)}</div>
+        ${d.lat ? '' : '<div class="hint">Adresse wird beim Antippen gesucht</div>'}
+      </div>`).join('') +
+      `<div class="nav-tile add" onclick="navEditor(null)"><div class="ic">＋</div><div class="nm">Neues Ziel</div></div>`;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  /* ---------------- Ziel-Editor (nutzt das bestehende Modal) ---------------- */
+  window.navEditor = function (id) {
+    const d = id ? byId(id) : null;
+    edit = d
+      ? { id: d.id, name: d.name, icon: d.icon, lat: d.lat || null, lon: d.lon || null, label: d.address || '' }
+      : { id: null, name: '', icon: '📍', lat: null, lon: null, label: '' };
+
+    openModal(`
+      <h2>${d ? escapeHtml(d.name) : 'Neues Ziel'}</h2>
+      <div class="desc">Name, Symbol und Position. Alles bleibt auf diesem Gerät.</div>
+      <label>Name</label>
+      <input type="text" id="navName" placeholder="z. B. Zuhause" value="${escapeHtml(edit.name)}">
+      <label>Symbol</label>
+      <div id="navSyms" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px;"></div>
+      <label>Position</label>
+      <button class="btn" style="margin-bottom:10px;" onclick="navUseHere()">📍 Aktuellen Standort übernehmen</button>
+      <input type="text" id="navQuery" placeholder="oder Adresse suchen" autocomplete="off">
+      <button class="btn" style="margin:10px 0;" onclick="navSearch()">Suchen</button>
+      <div id="navResults"></div>
+      <label>oder Koordinaten (Breite, Länge)</label>
+      <input type="text" id="navCoords" inputmode="decimal" placeholder="z. B. 47.4021, 8.6182"
+             value="${edit.lat ? edit.lat.toFixed(5) + ', ' + edit.lon.toFixed(5) : ''}">
+      <div id="navPicked" class="field-note" style="margin:10px 2px;">${edit.lat ? '✓ Position gespeichert' : 'Noch keine Position.'}</div>
+      <button class="btn btn-primary" style="margin-top:14px;" onclick="navSave()">Sichern</button>
+      ${d ? `<button class="btn" style="margin-top:10px;color:var(--danger);" onclick="navDelete('${d.id}')">Ziel löschen</button>` : ''}
+    `);
+    renderSyms();
+  };
+
+  function renderSyms() {
+    const box = document.getElementById('navSyms');
+    if (!box) return;
+    box.innerHTML = SYMS.map(s => `<span class="nav-sym ${s === edit.icon ? 'on' : ''}" onclick="navPickSym('${s}')">${s}</span>`).join('');
+  }
+  window.navPickSym = function (s) { edit.icon = s; renderSyms(); };
+
+  window.navUseHere = function () {
+    const note = document.getElementById('navPicked');
+    const say = t => { if (note) note.textContent = t; };
+
+    if (!navigator.geolocation) { say('Dieses Gerät liefert keine Ortung.'); return; }
+    say('Standort wird ermittelt …');
+
+    let done = false;
+    const ok = p => {
+      if (done) return; done = true;
+      edit.lat = p.coords.latitude; edit.lon = p.coords.longitude; edit.label = 'aktueller Standort';
+      const f = document.getElementById('navCoords');
+      if (f) f.value = edit.lat.toFixed(5) + ', ' + edit.lon.toFixed(5);
+      say('✓ Standort übernommen (±' + Math.round(p.coords.accuracy) + ' m)');
+    };
+    const fail = err => {
+      if (done) return; done = true;
+      const code = err && err.code;
+      if (code === 1) say('Ortung ist gesperrt. Einstellungen → Datenschutz → Ortungsdienste → Safari-Websites → «Beim Verwenden», danach Seite neu laden.');
+      else if (code === 2) say('Kein Standortsignal. Kurz ins Freie gehen oder Koordinaten unten eintragen.');
+      else if (code === 3) say('Zeitüberschreitung – bitte nochmals antippen.');
+      else say('Standort nicht verfügbar' + (err && err.message ? ': ' + err.message : '') + '.');
+    };
+
+    navigator.geolocation.getCurrentPosition(ok, () => {
+      // zweiter Versuch mit gröberer Ortung – klappt in Gebäuden häufiger
+      navigator.geolocation.getCurrentPosition(ok, fail,
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+  };
+
+  window.navSearch = async function () {
+    const q = ((document.getElementById('navQuery') || {}).value || '').trim();
+    const box = document.getElementById('navResults');
+    if (!box) return;
+    if (!q) { box.innerHTML = '<div class="nav-res">Bitte etwas eingeben.</div>'; return; }
+    box.innerHTML = '<div class="nav-res">Suche …</div>';
+
+    let list = [];
+    try {
+      const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&addressdetails=0&q=' + encodeURIComponent(q));
+      if (r.ok) {
+        list = (await r.json()).map(it => ({
+          lat: parseFloat(it.lat), lon: parseFloat(it.lon),
+          title: it.display_name.split(',')[0], sub: it.display_name
+        }));
+      }
+    } catch (e) { /* Ersatzdienst unten */ }
+
+    if (!list.length) {
+      try {
+        const r2 = await fetch('https://photon.komoot.io/api/?limit=5&lang=de&q=' + encodeURIComponent(q));
+        if (r2.ok) {
+          const j = await r2.json();
+          list = (j.features || []).map(f => {
+            const p = f.properties || {};
+            return {
+              lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
+              title: p.name || p.street || 'Ort',
+              sub: [p.street, p.housenumber, p.postcode, p.city, p.country].filter(Boolean).join(' ')
+            };
+          });
+        }
+      } catch (e) { /* unten melden */ }
+    }
+
+    if (!list.length) {
+      box.innerHTML = '<div class="nav-res">Nichts gefunden oder Suchdienst nicht erreichbar. Du kannst die Koordinaten unten von Hand eintragen.</div>';
+      return;
+    }
+    window.__navResults = list;
+    box.innerHTML = list.map((it, i) =>
+      `<div class="nav-res" onclick="navPickResult(${i})"><b>${escapeHtml(it.title)}</b><small>${escapeHtml(it.sub)}</small></div>`
+    ).join('');
+  };
+
+  window.navPickResult = function (i) {
+    const it = (window.__navResults || [])[i];
+    if (!it) return;
+    edit.lat = it.lat; edit.lon = it.lon; edit.label = it.sub || it.title;
+    const nameEl = document.getElementById('navName');
+    if (nameEl && !nameEl.value.trim()) nameEl.value = it.title;
+    const f = document.getElementById('navCoords');
+    if (f) f.value = it.lat.toFixed(5) + ', ' + it.lon.toFixed(5);
+    document.getElementById('navResults').innerHTML = '';
+    document.getElementById('navPicked').textContent = '✓ ' + (it.sub || it.title);
+  };
+
+  window.navSave = function () {
+    const name = ((document.getElementById('navName') || {}).value || '').trim();
+    if (!name) { toast('Bitte einen Namen eingeben'); return; }
+
+    // Koordinatenfeld hat Vorrang, falls es ausgefüllt ist
+    const raw = ((document.getElementById('navCoords') || {}).value || '').trim();
+    if (raw) {
+      const m = raw.replace(/\s/g, '').split(',');
+      const la = parseFloat(m[0]), lo = parseFloat(m[1]);
+      if (m.length !== 2 || isNaN(la) || isNaN(lo) || Math.abs(la) > 90 || Math.abs(lo) > 180) {
+        toast('Koordinaten bitte als «47.4021, 8.6182»'); return;
+      }
+      edit.lat = la; edit.lon = lo;
+      if (!edit.label) edit.label = la.toFixed(5) + ', ' + lo.toFixed(5);
+    }
+
+    if (edit.lat === null || edit.lat === undefined) {
+      toast('Bitte Standort übernehmen, Adresse suchen oder Koordinaten eintragen'); return;
+    }
+
+    if (edit.id) {
+      const d = byId(edit.id);
+      if (d) Object.assign(d, { name: name, icon: edit.icon, lat: edit.lat, lon: edit.lon, address: edit.label });
+    } else {
+      dests.push({ id: 'd' + Date.now(), name: name, icon: edit.icon, lat: edit.lat, lon: edit.lon, address: edit.label });
+    }
+    saveDests(); renderTiles(); closeModal(); toast('Ziel gespeichert');
+  };
+
+  window.navDelete = function (id) {
+    dests = dests.filter(d => d.id !== id);
+    saveDests(); renderTiles(); closeModal(); toast('Ziel gelöscht');
+  };
+
+
+  /* ---------------- Ziele verwalten ---------------- */
+  window.navManage = function () {
+    openModal(`
+      <h2>Ziele bearbeiten</h2>
+      <div class="desc">Ziel antippen, um Name, Symbol oder Position zu ändern.</div>
+      ${dests.map(d => `<div class="nav-res" onclick="navEditor('${d.id}')"><b>${d.icon} ${escapeHtml(d.name)}</b><small>${d.lat ? escapeHtml(d.address || 'Position gespeichert') : 'noch keine Position'}</small></div>`).join('')}
+      <button class="btn btn-primary" style="margin-top:14px;" onclick="navEditor(null)">Neues Ziel</button>
+    `);
+  };
+
+
+  /* ---------------- Adresssuche (einmal für alles) ---------------- */
+  async function geocode(q) {
+    const p = here() || (window.__navLastFix || null);
+    let list = [];
+    const near = p ? `&viewbox=${p.lon - .35},${p.lat + .25},${p.lon + .35},${p.lat - .25}&bounded=0` : '';
+    try {
+      const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=6&q=' + encodeURIComponent(q) + near);
+      if (r.ok) list = (await r.json()).map(it => ({
+        lat: parseFloat(it.lat), lon: parseFloat(it.lon),
+        title: it.display_name.split(',')[0],
+        sub: it.display_name.split(',').slice(1, 4).join(',').trim()
+      }));
+    } catch (e) {}
+    if (!list.length) {
+      try {
+        const u = 'https://photon.komoot.io/api/?limit=6&lang=de&q=' + encodeURIComponent(q) +
+                  (p ? `&lat=${p.lat}&lon=${p.lon}` : '');
+        const r2 = await fetch(u);
+        if (r2.ok) {
+          const j = await r2.json();
+          list = (j.features || []).map(f => {
+            const pr = f.properties || {};
+            return {
+              lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0],
+              title: pr.name || pr.street || 'Ort',
+              sub: [pr.street, pr.housenumber, pr.postcode, pr.city].filter(Boolean).join(' ')
+            };
+          });
+        }
+      } catch (e) {}
+    }
+    return list;
+  }
+
+  /* ---------------- Ziel ohne Position: Adresse selbst finden ---------------- */
+  async function resolveAndGo(d) {
+    toast('Adresse wird gesucht …');
+    const list = await geocode(d.address || d.name);
+
+    if (!list.length) {
+      // letzter Ausweg: aktuellen Standort anbieten (typisch für «Zuhause»)
+      const p = here();
+      if (p && confirm('Keine Adresse gefunden. Aktuellen Standort als «' + d.name + '» speichern?')) {
+        d.lat = p.lat; d.lon = p.lon; d.address = 'aktueller Standort';
+        saveDests(); renderTiles(); window.navGo(d.id);
+        return;
+      }
+      toast('Keine Adresse gefunden – bitte Namen im Ziel anpassen');
+      window.navEditor(d.id);
+      return;
+    }
+
+    if (list.length === 1) { useResult(d, list[0]); return; }
+
+    // mehrere Treffer: Adressen zur Auswahl, keine Koordinaten
+    window.__navChoices = list;
+    openModal(`
+      <h2>${escapeHtml(d.name)}</h2>
+      <div class="desc">Welche Adresse ist gemeint? Die Wahl wird gespeichert – beim nächsten Mal geht es sofort los.</div>
+      ${list.map((it, i) => `<div class="nav-res" onclick="navChoose('${d.id}',${i})">
+        <b>${escapeHtml(it.title)}</b><small>${escapeHtml(it.sub)}</small></div>`).join('')}
+      <button class="btn" style="margin-top:14px;" onclick="closeModal()">Abbrechen</button>
+    `);
+  }
+
+  window.navChoose = function (id, i) {
+    const d = byId(id), it = (window.__navChoices || [])[i];
+    if (!d || !it) return;
+    closeModal();
+    useResult(d, it);
+  };
+
+  function useResult(d, it) {
+    d.lat = it.lat; d.lon = it.lon; d.address = (it.title + (it.sub ? ', ' + it.sub : ''));
+    saveDests(); renderTiles();
+    toast(d.name + ': ' + it.title);
+    window.navGo(d.id);
+  }
+
+  /* ---------------- Freie Zielsuche wie im Navi ---------------- */
+  window.navSearchGo = async function (n) {
+    n = n || 0;
+    const inp = document.getElementById('navFreeSearch' + n);
+    const box = document.getElementById('navFreeResults' + n);
+    const q = ((inp || {}).value || '').trim();
+    if (!q || !box) return;
+    box.innerHTML = '<div class="nav-res">Suche …</div>';
+    const list = await geocode(q);
+    if (!list.length) { box.innerHTML = '<div class="nav-res">Nichts gefunden.</div>'; return; }
+    window.__navFree = list;
+    box.innerHTML = list.map((it, i) => `<div class="nav-res" onclick="navFreeGo(${i},${n})">
+      <b>${escapeHtml(it.title)}</b><small>${escapeHtml(it.sub)}</small></div>`).join('');
+  };
+
+  window.navFreeGo = function (i, n) {
+    const it = (window.__navFree || [])[i];
+    if (!it) return;
+    const d = { id: 'tmp' + Date.now(), name: it.title, icon: '📍', lat: it.lat, lon: it.lon, address: it.sub };
+    dests.push(d); saveDests(); renderTiles();
+    const box = document.getElementById('navFreeResults' + (n || 0)); if (box) box.innerHTML = '';
+    const inp = document.getElementById('navFreeSearch' + (n || 0)); if (inp) inp.value = '';
+    window.navGo(d.id);
+  };
+
+  /* ---------------- Fahrt mit Ziel ---------------- */
+  window.navGo = async function (id) {
+    const d = byId(id);
+    if (!d) return;
+    if (!d.lat) { await resolveAndGo(d); return; }
+    if (typeof rideActive !== 'undefined' && rideActive) { toast('Es läuft bereits eine Fahrt'); return; }
+    target = d;
+    window.__navCurrentDest = d.name;
+    baseRange = await currentRange();
+    startRide();                   // bestehende Fahrtaufzeichnung
+    showPanel();
+    follow = true;
+    // Navigation spielt sich in der Karte ab: Vollbild zu, Karte auf
+    navMinimize();
+    if (typeof setView === 'function') setView('karte');
+    setTimeout(() => { if (typeof mapObj !== 'undefined' && mapObj) mapObj.invalidateSize(); }, 200);
+    routeNow(true);
+  };
+
+  async function currentRange() {
+    try {
+      const cal = await getLatestCalibration();
+      if (!cal) return null;
+      const totalKm = await getTotalKm(await idbGetAll('trips'));
+      return Math.max(0, cal.value - (totalKm - cal.odometerAtCalibration));
+    } catch (e) { return null; }
+  }
+
+  function showPanel() {
+    const el = document.getElementById('rmNav');
+    if (!el || !target) return;
+    el.style.display = '';
+    const mp = document.getElementById('navMapPanel'); if (mp) mp.style.display = '';
+    const pk = document.getElementById('navMapPicker'); if (pk) pk.style.display = 'none';
+    document.getElementById('rmNavDest').textContent = target.name;
+    document.getElementById('rmNavInstr').textContent = 'Route wird berechnet …';
+    if (tickInt) clearInterval(tickInt);
+    tickInt = setInterval(tick, 1000);
+    tick();
+  }
+
+  function hidePanel() {
+    const el = document.getElementById('rmNav');
+    if (el) el.style.display = 'none';
+    const mp = document.getElementById('navMapPanel'); if (mp) mp.style.display = 'none';
+    const pk = document.getElementById('navMapPicker'); if (pk) pk.style.display = '';
+    if (tickInt) { clearInterval(tickInt); tickInt = null; }
+  }
+
+  function tick() {
+    if (typeof rideActive === 'undefined' || !rideActive) { navEnd(); return; }
+    const driven = (typeof rideDistance === 'number') ? rideDistance : 0;
+
+    const toGoEl = document.getElementById('rmNavToGo');
+    const leftEl = document.getElementById('rmNavLeft');
+    const warnEl = document.getElementById('rmNavWarn');
+    if (toGoEl) toGoEl.textContent = toGoKm === null ? '–' : fmtKm(toGoKm) + ' km';
+
+    let left = null;
+    if (baseRange !== null) left = Math.max(0, baseRange - driven);
+    if (leftEl) leftEl.textContent = left === null ? '–' : fmtKm(left) + ' km';
+
+    const critical = (left !== null && toGoKm !== null && left < toGoKm);
+    if (leftEl) leftEl.style.color = critical ? 'var(--danger)' : '';
+    if (warnEl) warnEl.style.display = critical ? '' : 'none';
+
+    let etaTxt = '–';
+    if (etaSec) {
+      const at = new Date(Date.now() + etaSec * 1000);
+      etaTxt = at.toLocaleTimeString('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' });
+    }
+    setText('rmNavEta', etaTxt);
+    setText('mapNavEta', etaTxt);
+
+    const pill = document.getElementById('navPillText');
+    if (pill) pill.textContent = `${fmtKm(driven)} km · ${target ? target.name : 'Fahrt'}${toGoKm !== null ? ' · noch ' + fmtKm(toGoKm) + ' km' : ''}`;
+
+    // gleiche Werte in der Karten-Ansicht
+    setText('mapNavToGo', toGoKm === null ? '–' : fmtKm(toGoKm) + ' km');
+    setText('mapNavDriven', fmtKm(driven) + ' km');
+    setText('mapNavLeft', left === null ? '–' : fmtKm(left) + ' km');
+    const mw = document.getElementById('mapNavWarn');
+    if (mw) mw.style.display = critical ? '' : 'none';
+    const mleft = document.getElementById('mapNavLeft');
+    if (mleft) mleft.style.color = critical ? 'var(--danger)' : '';
+    const mi = document.getElementById('mapNavInstr'), ri = document.getElementById('rmNavInstr');
+    if (mi && ri) mi.textContent = ri.textContent;
+    const ma = document.getElementById('mapNavArrow'), ra = document.getElementById('rmNavArrow');
+    if (ma && ra) ma.textContent = ra.textContent;
+
+    followMe();
+
+    // alle 5 Sekunden Route prüfen
+    if (Date.now() - lastRouteAt > 5000) routeNow(false);
+  }
+
+  function setText(id, t) { const e = document.getElementById(id); if (e) e.textContent = t; }
+
+  let follow = true;
+  window.navToggleFollow = function () {
+    follow = !follow;
+    const b = document.getElementById('navFollowBtn');
+    if (b) b.textContent = 'Folgen: ' + (follow ? 'an' : 'aus');
+  };
+
+  function followMe() {
+    if (typeof mapObj === 'undefined' || !mapObj || typeof L === 'undefined') return;
+    const p = here();
+    if (!p) return;
+    try {
+      if (typeof mapMarker !== 'undefined' && mapMarker) mapMarker.setLatLng([p.lat, p.lon]);
+      else {
+        window.mapMarker = L.marker([p.lat, p.lon], {
+          icon: L.divIcon({ className: '', html: '<div class="rp-dot"></div>', iconSize: [18, 18], iconAnchor: [9, 9] })
+        }).addTo(mapObj);
+      }
+      if (follow) mapObj.setView([p.lat, p.lon], Math.max(mapObj.getZoom() || 15, 16), { animate: true });
+    } catch (e) {}
+  }
+
+  /* ---------------- Route (OSRM) ---------------- */
+  function here() {
+    if (typeof rideLastPos !== 'undefined' && rideLastPos) window.__navLastFix = { lat: rideLastPos.lat, lon: rideLastPos.lng };
+    if (typeof rideLastPos !== 'undefined' && rideLastPos) return { lat: rideLastPos.lat, lon: rideLastPos.lng };
+    return null;
+  }
+
+  function offRoute(p) {
+    if (!routePts.length) return true;
+    let min = Infinity;
+    for (const c of routePts) min = Math.min(min, haversine(p.lat, p.lon, c[0], c[1]) * 1000);
+    return min > 70;
+  }
+
+  async function routeNow(force) {
+    if (!target) return;
+    const p = here();
+    if (!p) return;
+    if (!force && Date.now() - lastRouteAt < 20000 && !offRoute(p)) return;
+    lastRouteAt = Date.now();
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${p.lon},${p.lat};${target.lon},${target.lat}?overview=full&geometries=geojson&steps=true`;
+      const res = await fetch(url);
+      const j = await res.json();
+      const r = j.routes && j.routes[0];
+      if (!r) throw new Error('keine Route');
+      routePts = r.geometry.coordinates.map(c => [c[1], c[0]]);
+      window.__navState = { pts: routePts, target: target, stamp: Date.now() };
+      toGoKm = r.distance / 1000;
+      etaSec = r.duration || null;
+      drawRoute();
+      setInstruction(r, p);
+      if (toGoKm * 1000 < 60) {
+        const el = document.getElementById('rmNavInstr');
+        if (el) el.textContent = 'Ziel erreicht';
+      }
+    } catch (e) {
+      toGoKm = haversine(p.lat, p.lon, target.lat, target.lon);
+      const el = document.getElementById('rmNavInstr');
+      if (el) el.textContent = 'Richtung ' + target.name + ' (Luftlinie)';
+    }
+  }
+
+  const TURNS = {
+    'turn-left': ['↰', 'Links abbiegen'], 'turn-right': ['↱', 'Rechts abbiegen'],
+    'turn-slight left': ['↖︎', 'Leicht links'], 'turn-slight right': ['↗︎', 'Leicht rechts'],
+    'turn-sharp left': ['↰', 'Scharf links'], 'turn-sharp right': ['↱', 'Scharf rechts'],
+    'turn-straight': ['↑', 'Geradeaus'], 'depart': ['➜', 'Losfahren'], 'arrive': ['⚑', 'Ziel erreicht'],
+    'roundabout': ['↻', 'Im Kreisel'], 'rotary': ['↻', 'Im Kreisel'], 'merge': ['⤳', 'Einfädeln'],
+    'fork': ['⑂', 'An der Gabelung'], 'continue': ['↑', 'Weiter'], 'end of road': ['⤷', 'Am Strassenende'],
+    'new name': ['↑', 'Weiter']
+  };
+
+  function setInstruction(route, p) {
+    const steps = (route.legs && route.legs[0] && route.legs[0].steps) || [];
+    let best = null, bestD = Infinity;
+    for (const s of steps) {
+      const loc = s.maneuver && s.maneuver.location;
+      if (!loc) continue;
+      const d = haversine(p.lat, p.lon, loc[1], loc[0]) * 1000;
+      if (d > 15 && d < bestD) { bestD = d; best = s; }
+    }
+    if (!best) best = steps[0];
+    const arrow = document.getElementById('rmNavArrow');
+    const text = document.getElementById('rmNavInstr');
+    if (!best || !text) return;
+    const m = best.maneuver || {};
+    const key = (m.type === 'turn' || m.type === 'continue') ? m.type + '-' + (m.modifier || 'straight') : m.type;
+    const t = TURNS[key] || TURNS[m.type] || ['➜', 'Der Route folgen'];
+    if (arrow) arrow.textContent = t[0];
+    text.textContent = (bestD < 900 ? 'in ' + Math.round(bestD / 10) * 10 + ' m: ' : '') + t[1] + (best.name ? ' – ' + best.name : '');
+  }
+
+  function drawRoute() {
+    if (typeof mapObj === 'undefined' || !mapObj || typeof L === 'undefined') return;
+    if (routeLine) { mapObj.removeLayer(routeLine); routeLine = null; }
+    if (routePts.length) {
+      routeLine = L.polyline(routePts, { color: '#3B82F6', weight: 5, opacity: .85, dashArray: '1 8', lineCap: 'round' }).addTo(mapObj);
+    }
+    if (target) {
+      if (destMarker) mapObj.removeLayer(destMarker);
+      destMarker = L.circleMarker([target.lat, target.lon], { radius: 8, color: '#fff', weight: 2, fillColor: '#C23C31', fillOpacity: 1 })
+        .addTo(mapObj).bindTooltip(target.name);
+    }
+  }
+
+  /* ---------------- Hintergrund / Pille ---------------- */
+  window.navMinimize = function () {
+    document.getElementById('ridemode').classList.remove('open');
+    document.getElementById('navPill').classList.add('open');
+  };
+  window.navMaximize = function () {
+    document.getElementById('navPill').classList.remove('open');
+    document.getElementById('ridemode').classList.add('open');
+  };
+
+  function navEnd() {
+    hidePanel();
+    target = null; toGoKm = null; etaSec = null; routePts = []; baseRange = null;
+    window.__navCurrentDest = null;
+    window.__navState = null;
+    const pill = document.getElementById('navPill');
+    if (pill) pill.classList.remove('open');
+    if (routeLine && typeof mapObj !== 'undefined' && mapObj) { mapObj.removeLayer(routeLine); routeLine = null; }
+    if (destMarker && typeof mapObj !== 'undefined' && mapObj) { mapObj.removeLayer(destMarker); destMarker = null; }
+  }
+
+  /* ---------------- Anbindung an die bestehenden Funktionen ---------------- */
+  const origStop = window.stopRide;
+  window.stopRide = async function () {
+    const r = await origStop.apply(this, arguments);
+    navEnd();
+    return r;
+  };
+
+  const origStart = window.startRide;
+  window.startRide = function () {
+    const r = origStart.apply(this, arguments);
+    if (!target) hidePanel();          // Fahrt ohne Ziel: Panel bleibt aus
+    document.getElementById('navPill').classList.remove('open');
+    return r;
+  };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && target) { tick(); routeNow(true); }
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderTiles);
+  } else renderTiles();
+
+})();
+
+/* ============================================================
+   RidePilot – Fahrten mit Details: Tempo, Route, Ziel
+   ============================================================ */
+(function () {
+
+  let sampler = null;
+  let stats = null;   // {max, sum, n, moving, samples, dest}
+  let tripMap = null;
+
+  /* ---------- Aufzeichnung ---------- */
+  const origStart = window.startRide;
+  window.startRide = function () {
+    const r = origStart.apply(this, arguments);
+    stats = { max: 0, sum: 0, n: 0, moving: 0, samples: [], dest: null };
+    if (sampler) clearInterval(sampler);
+    sampler = setInterval(() => {
+      if (typeof rideActive === 'undefined' || !rideActive) return;
+      const v = (typeof rideSpeedKmh === 'number' && isFinite(rideSpeedKmh)) ? rideSpeedKmh : 0;
+      stats.n++; stats.sum += v;
+      if (v > stats.max) stats.max = v;
+      if (v > 3) stats.moving++;
+      if (stats.samples.length < 900) stats.samples.push(Math.round(v));
+    }, 1000);
+    return r;
+  };
+
+  const origStop = window.stopRide;
+  window.stopRide = async function () {
+    const snap = stats ? JSON.parse(JSON.stringify(stats)) : null;
+    const destName = (window.__navCurrentDest || null);
+    if (sampler) { clearInterval(sampler); sampler = null; }
+    const r = await origStop.apply(this, arguments);
+    stats = null;
+    try {
+      if (!snap) return r;
+      const trips = (await idbGetAll('trips')).sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+      const t = trips[0];
+      if (!t || t.manual) return r;
+      // nur die eben gespeicherte Fahrt ergänzen (max. 2 Minuten alt)
+      if (Date.now() - new Date(t.endTime || t.startTime).getTime() > 120000) return r;
+      const step = Math.max(1, Math.ceil(snap.samples.length / 180));
+      t.maxKmh = Math.round(snap.max);
+      t.movingSec = snap.moving;
+      t.avgKmh = snap.moving > 0 ? Math.round((t.distanceKm / (snap.moving / 3600)) * 10) / 10 : 0;
+      t.speeds = snap.samples.filter((_, i) => i % step === 0);
+      if (destName) t.destName = destName;
+      await idbPut('trips', t);
+      if (typeof currentView !== 'undefined' && currentView === 'fahrten') renderFahrten();
+    } catch (e) { console.error('Fahrtdetails:', e); }
+    return r;
+  };
+
+  /* ---------- Liste ---------- */
+  window.renderFahrten = async function () {
+    try {
+      const trips = (await idbGetAll('trips')).sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
+      const wrap = document.getElementById('tripList');
+      if (!wrap) return;
+      if (!trips.length) {
+        wrap.innerHTML = `<div class="empty"><div class="t">Noch keine Fahrten</div><div class="s">Starte deine erste Fahrt oder erfasse sie manuell.</div></div>`;
+        return;
+      }
+
+      const week = trips.filter(t => Date.now() - new Date(t.startTime) < 7 * 86400000);
+      const weekKm = week.reduce((a, t) => a + (t.distanceKm || 0), 0);
+
+      wrap.innerHTML = `
+        <div class="card card-tight" style="margin-bottom:12px;">
+          <div style="display:flex;text-align:center;">
+            <div style="flex:1;"><div class="num" style="font-size:20px;font-weight:800;">${fmtKm(weekKm)}</div><div class="field-note">km / 7 Tage</div></div>
+            <div style="flex:1;"><div class="num" style="font-size:20px;font-weight:800;">${week.length}</div><div class="field-note">Fahrten</div></div>
+            <div style="flex:1;"><div class="num" style="font-size:20px;font-weight:800;">${fmtKm(trips.reduce((a, t) => a + (t.distanceKm || 0), 0))}</div><div class="field-note">km gesamt</div></div>
+          </div>
+        </div>
+        <div class="card card-tight">` + trips.map(t => {
+          const bits = [];
+          if (t.durationSec > 0) bits.push(fmtDuration(t.durationSec));
+          if (t.avgKmh) bits.push('Ø ' + t.avgKmh + ' km/h');
+          if (t.maxKmh) bits.push('max ' + t.maxKmh);
+          if (t.manual) bits.push('manuell');
+          if (!bits.length) bits.push(t.note || 'Ohne Notiz');
+          return `
+          <div class="list-row" style="cursor:pointer;" onclick="showTripDetail(${t.id})">
+            <div class="icon">${t.type === 'incident' ? '⚠︎' : (t.track && t.track.length > 1 ? '🛣️' : '▶︎')}</div>
+            <div class="main">
+              <div class="title">${t.destName ? '→ ' + t.destName : fmtDate(t.startTime)}</div>
+              <div class="sub">${t.destName ? fmtDateTime(t.startTime) + ' · ' : ''}${bits.join(' · ')}</div>
+            </div>
+            <div class="trail">${fmtKm(t.distanceKm)} km</div>
+          </div>`;
+        }).join('') + `</div>`;
+    } catch (err) { console.error('renderFahrten:', err); showStorageError('tripList'); }
+  };
+
+  /* ---------- Detail ---------- */
+  window.showTripDetail = async function (id) {
+    const t = await idbGet('trips', id);
+    if (!t) return;
+
+    const hasTrack = Array.isArray(t.track) && t.track.length > 1;
+    const box = (v, l) => `<div style="flex:1;"><div class="num" style="font-size:19px;font-weight:800;">${v}</div><div class="field-note">${l}</div></div>`;
+
+    openModal(`
+      <h2>${t.destName ? 'Fahrt → ' + t.destName : 'Fahrt'}</h2>
+      <div class="desc">${fmtDateTime(t.startTime)}${t.endTime ? ' – ' + new Date(t.endTime).toLocaleTimeString('de-CH', { timeZone: 'Europe/Zurich', hour: '2-digit', minute: '2-digit' }) : ''}</div>
+
+      <div class="card card-tight" style="margin-bottom:12px;">
+        <div style="display:flex;text-align:center;">
+          ${box(fmtKm(t.distanceKm) + ' km', 'Strecke')}
+          ${box(t.durationSec > 0 ? fmtDuration(t.durationSec) : '–', 'Dauer')}
+        </div>
+        <div style="display:flex;text-align:center;margin-top:12px;">
+          ${box(t.avgKmh ? t.avgKmh + ' km/h' : '–', 'Ø Tempo')}
+          ${box(t.maxKmh ? t.maxKmh + ' km/h' : '–', 'Spitze')}
+          ${box(t.movingSec ? fmtDuration(t.movingSec) : '–', 'in Bewegung')}
+        </div>
+      </div>
+
+      ${hasTrack ? '<div id="tripMap" style="height:200px;border-radius:14px;overflow:hidden;margin-bottom:12px;"></div>' : '<div class="field-note" style="margin-bottom:12px;">Für diese Fahrt wurde keine Strecke aufgezeichnet.</div>'}
+
+      ${(t.speeds && t.speeds.length > 3) ? `<div class="field-note" style="margin:0 2px 4px;">Tempoverlauf (km/h)</div>${sparkline(t.speeds)}` : ''}
+
+      ${t.note ? `<div class="card card-tight" style="margin:12px 0;">${t.note}</div>` : ''}
+      ${(t.photos || []).map(p => `<img src="${p}" style="width:100%;border-radius:14px;margin-top:10px;">`).join('')}
+
+      <button class="btn btn-danger" style="margin-top:14px;" onclick="deleteTrip(${id})">Fahrt löschen</button>
+    `);
+
+    if (hasTrack) setTimeout(() => drawTripMap(t.track), 80);
+  };
+
+  function sparkline(vals) {
+    const w = 300, h = 70, max = Math.max(30, ...vals);
+    const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * w},${h - (v / max) * (h - 6) - 3}`).join(' ');
+    return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:70px;background:var(--surface-alt);border-radius:12px;">
+      <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <text x="4" y="12" font-size="9" fill="var(--text-3)">${Math.round(max)}</text>
+    </svg>`;
+  }
+
+  function drawTripMap(track) {
+    if (typeof L === 'undefined') return;
+    const el = document.getElementById('tripMap');
+    if (!el) return;
+    try {
+      if (tripMap) { tripMap.remove(); tripMap = null; }
+      tripMap = L.map(el, { zoomControl: false, attributionControl: true });
+      tileLayerFor(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light').addTo(tripMap);
+      const line = L.polyline(track, { color: '#0E7C86', weight: 5, opacity: .9 }).addTo(tripMap);
+      L.circleMarker(track[0], { radius: 6, color: '#fff', weight: 2, fillColor: '#0E7C86', fillOpacity: 1 }).addTo(tripMap);
+      L.circleMarker(track[track.length - 1], { radius: 6, color: '#fff', weight: 2, fillColor: '#C23C31', fillOpacity: 1 }).addTo(tripMap);
+      tripMap.fitBounds(line.getBounds(), { padding: [20, 20] });
+      setTimeout(() => tripMap.invalidateSize(), 60);
+    } catch (e) { console.error('tripMap:', e); }
+  }
+
+})();
+
+/* ============================================================
+   RidePilot – E-Roller-Profil, Wartungsvorlagen, Papiere (CH)
+   Grundlage für die spätere Store-App «RidePilot E-Roller»
+   ============================================================ */
+(function () {
+
+  const RECHT = 'Vorlagen und Erinnerungen, keine Rechtsauskunft. Fristen und Kategorien ' +
+    'unterscheiden sich nach Bauart, Tempo und Kanton – beim Strassenverkehrsamt prüfen.';
+
+  const VORLAGEN = [
+    { title: 'Bremsen prüfen',            intervalKm: 2000, intervalMonths: 6 },
+    { title: 'Reifendruck prüfen',        intervalKm: 500,  intervalMonths: 1 },
+    { title: 'Reifenprofil prüfen',       intervalKm: 3000, intervalMonths: 6 },
+    { title: 'Akku-Zustand prüfen',       intervalKm: null, intervalMonths: 6 },
+    { title: 'Ladegerät und Kabel prüfen', intervalKm: null, intervalMonths: 6 },
+    { title: 'Schrauben nachziehen',      intervalKm: 2000, intervalMonths: 6 },
+    { title: 'Beleuchtung und Blinker',   intervalKm: null, intervalMonths: 3 },
+    { title: 'Kontrolle beim Händler',    intervalKm: 5000, intervalMonths: 12 }
+  ];
+
+  const PAPIERE = [
+    ['Fahrzeugausweis / Typenschein', 'Bauart und Kategorie des Rollers'],
+    ['Haftpflichtversicherung', 'Police, Ablaufdatum, Notfallnummer'],
+    ['Kontrollschild', 'Nummer und Kanton'],
+    ['Führerausweis', 'Kategorie je nach Bauart und Höchsttempo'],
+    ['Helm', 'Kaufdatum – Helme altern, Empfehlung Ersatz nach 5 Jahren'],
+    ['Kaufbeleg und Garantie', 'Akku-Garantie gesondert beachten'],
+    ['Schlüsselnummer und Rahmennummer', 'Wichtig bei Diebstahl']
+  ];
+
+  const FELDER = [
+    ['vHersteller', 'Hersteller', 'z. B. Volta'],
+    ['vModell2',    'Modell', 'z. B. VSX'],
+    ['vBaujahr',    'Baujahr', '2024'],
+    ['vTempo',      'Höchstgeschwindigkeit (km/h)', '25'],
+    ['vAkku',       'Akkukapazität (kWh)', '2.0'],
+    ['vReichweite', 'Reichweite neu (km)', '42'],
+    ['vRahmen',     'Rahmennummer', 'optional'],
+    ['vKauf',       'Kaufdatum', 'TT.MM.JJJJ'],
+    ['vVers',       'Versicherung / Police', 'z. B. Allianz, Nr. …'],
+    ['vHaendler',   'Händler / Service', 'Name und Telefon']
+  ];
+
+  /* ---------- Profilkarte in den Einstellungen erweitern ---------- */
+  async function buildProfile() {
+    const modelInput = document.getElementById('vModel');
+    if (!modelInput) return;
+    const card = modelInput.closest('.card');
+    if (!card || card.dataset.rpExt) return;
+    card.dataset.rpExt = '1';
+
+    let v = {};
+    try { v = (await idbGet('vehicle', 'main')) || {}; } catch (e) {}
+
+    modelInput.closest('.card').querySelectorAll('label').forEach(l => {
+      if (l.getAttribute('for') === 'vModel') l.remove();
+    });
+    modelInput.remove();
+
+    const btn = card.querySelector('button');
+    const html = FELDER.map(([id, label, ph]) =>
+      `<label for="${id}">${label}</label>
+       <input type="text" id="${id}" placeholder="${ph}" value="${(v[id] || '').replace(/"/g, '&quot;')}">`
+    ).join('');
+    btn.insertAdjacentHTML('beforebegin', html);
+
+    const origSave = window.saveVehicle;
+    window.saveVehicle = async function () {
+      const data = { id: 'main', name: (document.getElementById('vName').value || '').trim(),
+                     plate: (document.getElementById('vPlate').value || '').trim() };
+      FELDER.forEach(([id]) => { const e = document.getElementById(id); if (e) data[id] = e.value.trim(); });
+      data.model = ((data.vHersteller || '') + ' ' + (data.vModell2 || '')).trim() || 'E-Roller';
+      await idbPut('vehicle', data);
+      toast('Fahrzeugprofil gespeichert');
+      renderDashboard();
+    };
+  }
+
+  /* ---------- Papiere-Karte ---------- */
+  function buildPapers() {
+    const view = document.getElementById('view-dokumente');
+    if (!view || document.getElementById('rpPapers')) return;
+    const html = `
+      <div class="section-title">Papiere & Pflichten (Schweiz)</div>
+      <div class="card card-tight" id="rpPapers">
+        ${PAPIERE.map(([t, s]) => `
+          <div class="list-row"><div class="main"><div class="title">${t}</div><div class="sub">${s}</div></div>
+          <span class="pill pill-ok">Vorlage</span></div>`).join('')}
+      </div>
+      <div class="section-title">Notfall</div>
+      <div class="card card-tight">
+        <div class="list-row"><div class="main"><div class="title">Polizei</div></div><div class="trail"><a href="tel:117">117</a></div></div>
+        <div class="list-row"><div class="main"><div class="title">Sanität</div></div><div class="trail"><a href="tel:144">144</a></div></div>
+        <div class="list-row"><div class="main"><div class="title">Pannenhilfe TCS</div></div><div class="trail"><a href="tel:140">140</a></div></div>
+        <div class="list-row"><div class="main"><div class="title">Europäischer Notruf</div></div><div class="trail"><a href="tel:112">112</a></div></div>
+      </div>
+      <div class="field-note" style="margin:0 2px 20px;">${RECHT}</div>`;
+    view.insertAdjacentHTML('beforeend', html);
+  }
+
+  /* ---------- Wartungsvorlagen ---------- */
+  function buildMaintButton() {
+    const view = document.getElementById('view-wartung');
+    if (!view || document.getElementById('rpTplBtn')) return;
+    const row = view.querySelector('.btn-row');
+    if (!row) return;
+    row.insertAdjacentHTML('afterend',
+      `<div class="btn-row" style="margin-bottom:16px;">
+         <button class="btn btn-secondary" id="rpTplBtn" onclick="rpAddVorlagen()">Vorlagen für E-Roller einfügen</button>
+       </div>`);
+  }
+
+  window.rpAddVorlagen = async function () {
+    try {
+      const have = await idbGetAll('maintenance');
+      const names = have.map(m => m.title);
+      const neu = VORLAGEN.filter(v => !names.includes(v.title));
+      if (!neu.length) { toast('Alle Vorlagen sind bereits vorhanden'); return; }
+      for (const v of neu) {
+        await idbPut('maintenance', {
+          title: v.title, intervalKm: v.intervalKm, intervalMonths: v.intervalMonths,
+          lastDoneDate: new Date().toISOString(), lastDoneKm: await getTotalKm(await idbGetAll('trips'))
+        });
+      }
+      toast(neu.length + ' Wartungspunkte eingefügt');
+      renderWartung();
+    } catch (e) { console.error(e); toast('Konnte Vorlagen nicht einfügen'); }
+  };
+
+  /* ---------- Start ---------- */
+  function boot() { buildProfile(); buildPapers(); buildMaintButton(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(boot, 400));
+  else setTimeout(boot, 400);
+
+})();
+
+/* ============================================================
+   RidePilot – Vollbild-Navigation im CarPlay-Stil
+   Karte füllt den Bildschirm, Anweisung oben, Werte unten.
+   ============================================================ */
+(function () {
+
+  let cpMap = null, cpLine = null, cpMe = null, cpDest = null, cpTick = null;
+  let follow = true, lastStamp = 0;
+
+  const CSS = `
+  #carplay{position:fixed;inset:0;z-index:300;display:none;background:#0A0E14}
+  #carplay.on{display:block}
+  #cpMap{position:absolute;inset:0}
+  #cpMap .leaflet-tile{filter:brightness(.72) contrast(1.15) saturate(.85)}
+  #carplay .top{position:absolute;top:calc(10px + env(safe-area-inset-top));left:12px;right:12px;
+    background:rgba(16,22,32,.94);backdrop-filter:blur(16px);border:1px solid #232D3D;
+    border-radius:20px;padding:16px 18px;display:flex;gap:14px;align-items:center;color:#EAF1F8;
+    box-shadow:0 16px 40px rgba(0,0,0,.5)}
+  #carplay .top .arw{font-size:40px;color:#4EA1FF;line-height:1}
+  #carplay .top .meters{font-size:26px;font-weight:800;letter-spacing:-.8px;line-height:1.1}
+  #carplay .top .street{font-size:15px;color:#93A2B5;margin-top:3px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #carplay .bottom{position:absolute;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));
+    background:rgba(16,22,32,.94);backdrop-filter:blur(16px);border:1px solid #232D3D;
+    border-radius:22px;padding:14px 16px;color:#EAF1F8;box-shadow:0 16px 40px rgba(0,0,0,.5)}
+  #carplay .vals{display:flex;text-align:center}
+  #carplay .vals>div{flex:1}
+  #carplay .vals .v{font-size:22px;font-weight:800;letter-spacing:-.6px;font-variant-numeric:tabular-nums}
+  #carplay .vals .l{font-size:10.5px;color:#93A2B5;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+  #carplay .acts{display:flex;gap:10px;margin-top:14px}
+  #carplay .acts button{flex:1;min-height:54px;border-radius:100px;font-size:15px;font-weight:800;
+    background:#1A2232;border:1px solid #232D3D;color:#EAF1F8}
+  #carplay .acts .stop{background:#D0483C;border-color:#D0483C;color:#fff}
+  #carplay .speed{position:absolute;right:14px;bottom:calc(170px + env(safe-area-inset-bottom));
+    background:rgba(16,22,32,.94);border:1px solid #232D3D;border-radius:18px;padding:10px 14px;
+    text-align:center;color:#EAF1F8;min-width:86px;box-shadow:0 12px 30px rgba(0,0,0,.45)}
+  #carplay .speed .v{font-size:30px;font-weight:800;letter-spacing:-1px;line-height:1;font-variant-numeric:tabular-nums}
+  #carplay .speed .l{font-size:10px;color:#93A2B5;font-weight:700;margin-top:2px}
+  #carplay .warn{color:#FF5C6C;font-size:12.5px;font-weight:700;margin-top:8px;text-align:center}
+  .rp-cp-dot{width:20px;height:20px;border-radius:100px;background:#4EA1FF;border:3px solid #fff;
+    box-shadow:0 0 16px rgba(78,161,255,.8)}`;
+
+  const HTML = `
+  <div id="carplay">
+    <div id="cpMap"></div>
+    <div class="top">
+      <div class="arw" id="cpArrow">➜</div>
+      <div style="flex:1;min-width:0">
+        <div class="meters" id="cpMeters">Route wird berechnet …</div>
+        <div class="street" id="cpStreet">–</div>
+      </div>
+    </div>
+    <div class="speed"><div class="v" id="cpSpeed">0</div><div class="l">km/h</div></div>
+    <div class="bottom">
+      <div class="vals">
+        <div><div class="v" id="cpEta">–</div><div class="l">Ankunft</div></div>
+        <div><div class="v" id="cpToGo">–</div><div class="l">bis Ziel</div></div>
+        <div><div class="v" id="cpLeft">–</div><div class="l">Reichweite</div></div>
+      </div>
+      <div class="warn" id="cpWarn" style="display:none">⚠︎ Reichweite reicht nicht bis zum Ziel</div>
+      <div class="acts">
+        <button id="cpFollow" onclick="cpToggleFollow()">Folgen: an</button>
+        <button onclick="cpClose()">Übersicht</button>
+        <button class="stop" onclick="stopRide()">Beenden</button>
+      </div>
+    </div>
+  </div>`;
+
+  function mount() {
+    if (document.getElementById('carplay')) return;
+    document.head.insertAdjacentHTML('beforeend', '<style>' + CSS + '</style>');
+    document.body.insertAdjacentHTML('beforeend', HTML);
+  }
+
+  window.cpToggleFollow = function () {
+    follow = !follow;
+    const b = document.getElementById('cpFollow');
+    if (b) b.textContent = 'Folgen: ' + (follow ? 'an' : 'aus');
+  };
+
+  window.cpOpen = function () {
+    mount();
+    document.getElementById('carplay').classList.add('on');
+    setTimeout(initMapCP, 60);
+    if (cpTick) clearInterval(cpTick);
+    cpTick = setInterval(update, 1000);
+    update();
+  };
+
+  window.cpClose = function () {
+    const el = document.getElementById('carplay');
+    if (el) el.classList.remove('on');
+    if (cpTick) { clearInterval(cpTick); cpTick = null; }
+    if (typeof setView === 'function') setView('karte');
+  };
+
+  function initMapCP() {
+    if (typeof L === 'undefined') return;
+    const el = document.getElementById('cpMap');
+    if (!el) return;
+    if (!cpMap) {
+      cpMap = L.map(el, { zoomControl: false, attributionControl: true });
+      try { tileLayerFor('dark').addTo(cpMap); }
+      catch (e) { L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(cpMap); }
+      const st = window.__navState;
+      const c = st && st.target ? [st.target.lat, st.target.lon] : [47.40, 8.62];
+      cpMap.setView(c, 15);
+    }
+    cpMap.invalidateSize();
+    draw();
+  }
+
+  function draw() {
+    if (!cpMap || typeof L === 'undefined') return;
+    const st = window.__navState;
+    if (st && st.stamp !== lastStamp) {
+      lastStamp = st.stamp;
+      if (cpLine) cpMap.removeLayer(cpLine);
+      cpLine = L.polyline(st.pts, { color: '#4EA1FF', weight: 8, opacity: .95, lineCap: 'round' }).addTo(cpMap);
+      if (cpDest) cpMap.removeLayer(cpDest);
+      cpDest = L.circleMarker([st.target.lat, st.target.lon],
+        { radius: 9, color: '#fff', weight: 3, fillColor: '#FF5C6C', fillOpacity: 1 }).addTo(cpMap);
+    }
+    if (typeof rideLastPos !== 'undefined' && rideLastPos) {
+      const p = [rideLastPos.lat, rideLastPos.lng];
+      if (!cpMe) cpMe = L.marker(p, { icon: L.divIcon({ className: '', html: '<div class="rp-cp-dot"></div>', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(cpMap);
+      else cpMe.setLatLng(p);
+      if (follow) cpMap.setView(p, Math.max(cpMap.getZoom() || 16, 17), { animate: true });
+    }
+  }
+
+  function txt(id) { const e = document.getElementById(id); return e ? e.textContent : '–'; }
+  function set(id, v) { const e = document.getElementById(id); if (e) e.textContent = v; }
+
+  function update() {
+    if (typeof rideActive === 'undefined' || !rideActive) { window.cpClose(); return; }
+
+    // Anweisung aus dem Navigationsmodul übernehmen und aufteilen
+    const full = txt('rmNavInstr');
+    const m = full.match(/^in (\d+) m: (.*)$/);
+    if (m) { set('cpMeters', m[1] + ' m'); set('cpStreet', m[2]); }
+    else { set('cpMeters', full); set('cpStreet', txt('rmNavDest')); }
+    set('cpArrow', txt('rmNavArrow'));
+
+    set('cpEta', txt('rmNavEta'));
+    set('cpToGo', txt('rmNavToGo'));
+    set('cpLeft', txt('rmNavLeft'));
+    set('cpSpeed', (typeof rideSpeedKmh === 'number' && isFinite(rideSpeedKmh)) ? Math.round(rideSpeedKmh) : 0);
+
+    const warn = document.getElementById('rmNavWarn');
+    const w = document.getElementById('cpWarn');
+    if (w) w.style.display = (warn && warn.style.display !== 'none') ? '' : 'none';
+
+    draw();
+  }
+
+  /* Start der Navigation öffnet direkt die Vollbild-Ansicht */
+  const origGo = window.navGo;
+  window.navGo = async function (id) {
+    const r = await origGo.apply(this, arguments);
+    setTimeout(() => { if (window.__navCurrentDest) window.cpOpen(); }, 300);
+    return r;
+  };
+
+  const origStop = window.stopRide;
+  window.stopRide = async function () {
+    const r = await origStop.apply(this, arguments);
+    window.cpClose();
+    return r;
+  };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && cpMap) setTimeout(() => cpMap.invalidateSize(), 120);
+  });
+
+})();
+
+/* ============================================================
+   RidePilot – Sperrbildschirm beim Öffnen der App
+   Nutzt dieselbe PIN wie der Managerbereich.
+   ============================================================ */
+(function () {
+
+  let buf = '', locked = false, hiddenAt = 0;
+  const RELOCK_MS = 180000;   // nach 3 Minuten im Hintergrund wieder sperren
+
+  const CSS = `
+  #rpLock{position:fixed;inset:0;z-index:900;display:none;flex-direction:column;align-items:center;
+    justify-content:center;background:rgba(8,11,17,.97);backdrop-filter:blur(22px);color:#EAF1F8;
+    padding:calc(30px + env(safe-area-inset-top)) 20px calc(30px + env(safe-area-inset-bottom))}
+  #rpLock.on{display:flex}
+  #rpLock .mark{width:64px;height:64px;border-radius:22px;display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(135deg,#4EA1FF,#12C2A0);color:#06131A;font-size:30px;font-weight:800;
+    box-shadow:0 0 30px rgba(78,161,255,.35)}
+  #rpLock h2{margin:18px 0 4px;font-size:22px;font-weight:800;letter-spacing:-.4px}
+  #rpLock .hint{color:#93A2B5;font-size:14px}
+  #rpLock .dots{display:flex;gap:14px;margin:26px 0 30px}
+  #rpLock .dot{width:14px;height:14px;border-radius:100px;border:2px solid #3A4757;transition:all .15s}
+  #rpLock .dot.on{background:#4EA1FF;border-color:#4EA1FF;box-shadow:0 0 14px rgba(78,161,255,.7)}
+  #rpLock .pad{display:grid;grid-template-columns:repeat(3,86px);gap:16px}
+  #rpLock .key{width:86px;height:86px;border-radius:100px;background:rgba(255,255,255,.07);
+    border:1px solid rgba(255,255,255,.10);color:#EAF1F8;font-size:30px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .08s, background .12s}
+  #rpLock .key:active{transform:scale(.92);background:rgba(255,255,255,.16)}
+  #rpLock .key.plain{background:transparent;border-color:transparent;font-size:16px;font-weight:700;color:#93A2B5}
+  #rpLock.shake{animation:rpShake .4s}
+  @keyframes rpShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-11px)}
+    40%{transform:translateX(11px)}60%{transform:translateX(-7px)}80%{transform:translateX(7px)}}`;
+
+  const HTML = `
+  <div id="rpLock">
+    <div class="mark">⚡︎</div>
+    <h2>RidePilot</h2>
+    <div class="hint" id="rpLockHint">Code eingeben</div>
+    <div class="dots" id="rpDots"></div>
+    <div class="pad">
+      ${[1,2,3,4,5,6,7,8,9].map(n => `<div class="key" onclick="rpKey('${n}')">${n}</div>`).join('')}
+      <div class="key plain"></div>
+      <div class="key" onclick="rpKey('0')">0</div>
+      <div class="key plain" onclick="rpKey('del')">Löschen</div>
+    </div>
+  </div>`;
+
+  function mount() {
+    if (document.getElementById('rpLock')) return;
+    document.head.insertAdjacentHTML('beforeend', '<style>' + CSS + '</style>');
+    document.body.insertAdjacentHTML('beforeend', HTML);
+  }
+
+  function dots() {
+    const box = document.getElementById('rpDots');
+    if (!box) return;
+    box.innerHTML = Array.from({ length: 6 }, (_, i) =>
+      `<div class="dot ${i < buf.length ? 'on' : ''}"></div>`).join('');
+  }
+
+  window.rpKey = async function (k) {
+    if (k === 'del') { buf = buf.slice(0, -1); dots(); return; }
+    if (buf.length >= 6) return;
+    buf += k; dots();
+    if (buf.length >= 4) await tryUnlock();
+  };
+
+  async function tryUnlock() {
+    try {
+      const s = await idbGet('settings', 'main');
+      if (!s || !s.pinHash) { unlock(); return; }
+      const h = await sha256(buf);
+      if (h === s.pinHash) { unlock(); return; }
+      if (buf.length === 6) wrong();
+    } catch (e) { unlock(); }
+  }
+
+  function wrong() {
+    const el = document.getElementById('rpLock');
+    document.getElementById('rpLockHint').textContent = 'Code falsch – nochmals versuchen';
+    el.classList.add('shake');
+    if (navigator.vibrate) navigator.vibrate(120);
+    setTimeout(() => { el.classList.remove('shake'); buf = ''; dots(); }, 420);
+  }
+
+  function unlock() {
+    buf = ''; locked = false;
+    const el = document.getElementById('rpLock');
+    if (el) el.classList.remove('on');
+    document.body.style.overflow = '';
+  }
+
+  window.rpLockNow = function () {
+    mount(); buf = ''; locked = true; dots();
+    const el = document.getElementById('rpLock');
+    document.getElementById('rpLockHint').textContent = 'Code eingeben';
+    el.classList.add('on');
+    document.body.style.overflow = 'hidden';
+  };
+
+  async function lockEnabled() {
+    try {
+      const s = await idbGet('settings', 'main');
+      return !!(s && s.pinHash && s.appLock !== false);
+    } catch (e) { return false; }
+  }
+
+  /* ---------- Schalter in den Einstellungen ---------- */
+  async function addSwitch() {
+    const row = document.getElementById('pinRowLabel');
+    if (!row || document.getElementById('rpLockRow')) return;
+    const host = row.closest('.list-row') || row.closest('.card');
+    if (!host) return;
+    const on = await lockEnabled();
+    host.insertAdjacentHTML('afterend', `
+      <div class="list-row" id="rpLockRow" style="cursor:pointer;" onclick="rpToggleLock()">
+        <span class="l">App beim Öffnen sperren</span>
+        <span class="pill ${on ? 'pill-ok' : ''}" id="rpLockState">${on ? 'an' : 'aus'}</span>
+      </div>`);
+  }
+
+  window.rpToggleLock = async function () {
+    const s = (await idbGet('settings', 'main')) || { id: 'main' };
+    if (!s.pinHash) { toast('Zuerst eine PIN einrichten'); openPinSetup(); return; }
+    s.appLock = !(s.appLock !== false);
+    await idbPut('settings', s);
+    const el = document.getElementById('rpLockState');
+    if (el) { el.textContent = s.appLock ? 'an' : 'aus'; el.className = 'pill ' + (s.appLock ? 'pill-ok' : ''); }
+    toast(s.appLock ? 'App-Sperre eingeschaltet' : 'App-Sperre ausgeschaltet');
+  };
+
+  /* ---------- Start und Rückkehr aus dem Hintergrund ---------- */
+  async function boot() {
+    if (await lockEnabled()) window.rpLockNow();
+    addSwitch();
+  }
+
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+    if (locked) return;
+    if (typeof rideActive !== 'undefined' && rideActive) return;   // während der Fahrt nicht sperren
+    if (hiddenAt && Date.now() - hiddenAt > RELOCK_MS && await lockEnabled()) window.rpLockNow();
+  });
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(boot, 250));
+  else setTimeout(boot, 250);
+
+})();
+
+</script>
+</body>
+</html>
